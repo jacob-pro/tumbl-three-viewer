@@ -2,12 +2,29 @@ $( document ).ready(function() {
     const BLOG_CHOICE = $("#blog-choice");
     const SEARCH = $("#search");
     const PAGE_CHOICE = $("#page-choice");
+    const FORM = $("#form")
     const POSTS_DIV = $("#posts");
     const PAGE_SIZE = 100;
-    let POSTS_DATA = [];
-    let POSTS_DATA_PROCESSED = [];
 
-    $("#form").trigger("reset");
+    let ALL_POSTS = [];
+    let FILTERED_POSTS = [];
+
+    FORM.trigger("reset");
+    FORM.submit(function( event ) {
+        event.preventDefault();
+    });
+    SEARCH.attr('disabled' , true);
+
+    $.get( "/blogs/" ).then(
+        function(res) {
+            parse_blogs_list(res);
+        },
+        function (e) {
+            throw new Error("Get /blogs/ failed")
+        }
+    ).catch((e) => {
+        alert(e);
+    })
 
     // Convert nginx directory index into list of blogs
     function parse_blogs_list(res) {
@@ -27,33 +44,6 @@ $( document ).ready(function() {
         BLOG_CHOICE.attr('disabled' , false);
     }
 
-    function update_page_choice() {
-        PAGE_CHOICE.empty()
-        if (POSTS_DATA.length < 1) {
-            const placeholder = new Option("1", "1");
-            placeholder.setAttribute('disabled', true);
-            PAGE_CHOICE.append(placeholder)
-            PAGE_CHOICE.attr('disabled' , true);
-        } else {
-            const pages = Math.ceil(POSTS_DATA.length / PAGE_SIZE)
-            for (let i = 1; i <= pages; i++) {
-                PAGE_CHOICE.append(new Option(i.toString(), i.toString()));
-            }
-            PAGE_CHOICE.attr('disabled' , false);
-        }
-    }
-
-    $.get( "/blogs/" ).then(
-        function(res) {
-            parse_blogs_list(res);
-        },
-        function (e) {
-            throw new Error("Get /blogs/ failed")
-        }
-    ).catch((e) => {
-        alert(e);
-    })
-
     BLOG_CHOICE.change(function() {
         const blog = $(this).val();
         console.log("Loading blog files: " + blog);
@@ -64,7 +54,8 @@ $( document ).ready(function() {
             Video.load(blog),
         ]
         $.when(...requests).then((...responses) => {
-            POSTS_DATA = responses.flat()
+            ALL_POSTS = responses.flat()
+            apply_filters();
             update_page_choice();
             render_posts();
             SEARCH.attr('disabled' , false);
@@ -74,25 +65,52 @@ $( document ).ready(function() {
     });
 
     PAGE_CHOICE.change(function() {
+        apply_filters();
         render_posts();
     });
 
-    SEARCH.change(function(e) {
+    SEARCH.on("input", function(e) {
         clearTimeout(this.thread);
-        this.thread = setTimeout(function(){
-
-        }, 250);
+        this.thread = setTimeout(function() {
+            apply_filters();
+            update_page_choice();
+            render_posts();
+        }, 150);
     });
+
+    // Filters by search and selected page number
+    function apply_filters() {
+        const search = SEARCH[0].value;
+        FILTERED_POSTS = ALL_POSTS.filter((p) => {
+            return search.length === 0 || p.matches_search(search)
+        })
+        FILTERED_POSTS.sort(function (a, b) {
+            return a.id - b.id;
+        });
+    }
+
+    function update_page_choice() {
+        PAGE_CHOICE.empty()
+        if (FILTERED_POSTS.length < 1) {
+            const placeholder = new Option("1", "1");
+            placeholder.setAttribute('disabled', true);
+            PAGE_CHOICE.append(placeholder)
+            PAGE_CHOICE.attr('disabled' , true);
+        } else {
+            const pages = Math.ceil(FILTERED_POSTS.length / PAGE_SIZE)
+            for (let i = 1; i <= pages; i++) {
+                PAGE_CHOICE.append(new Option(i.toString(), i.toString()));
+            }
+            PAGE_CHOICE.attr('disabled' , false);
+        }
+    }
 
     function render_posts() {
         POSTS_DIV.empty();
-        POSTS_DATA.sort(function (a, b) {
-            return a.id - b.id;
-        });
         const page_number = parseInt(PAGE_CHOICE[0].value) - 1;
         const start = page_number * PAGE_SIZE
         const stop = (page_number + 1) * PAGE_SIZE
-        for (const post of POSTS_DATA.slice(start, stop)) {
+        for (const post of FILTERED_POSTS.slice(start, stop)) {
             const render = post.render();
             const type = post.constructor.name
             POSTS_DIV.append(`<div class='post ${type}' id="${post.id}">${render}</div>`)
@@ -198,6 +216,10 @@ class Post {
         return `<p>${this.tags}</p>`
     }
 
+    matches_search(search) {
+        return this.tags.includes(search)
+    }
+
 }
 
 class Image extends Post {
@@ -231,6 +253,10 @@ class Image extends Post {
         const images = this.photo_urls.map((u) => `<img src="${u}" alt="">`).join("\n")
         const footer = super.render_footer();
         return [header, this.caption, images, footer].join("\n")
+    }
+
+    matches_search(search) {
+        return super.matches_search(search) || this.caption.includes(search)
     }
 
 }
@@ -275,6 +301,10 @@ class Video extends Post {
         const video = `<video controls><source src="${this.url}"></video>`
         return [header, this.caption, video, footer].join("\n")
     }
+
+    matches_search(search) {
+        return super.matches_search(search) || this.caption.includes(search)
+    }
 }
 
 class Text extends Post {
@@ -302,6 +332,10 @@ class Text extends Post {
         return [header, title, this.body, footer].join("\n")
     }
 
+    matches_search(search) {
+        return super.matches_search(search) || this.title.includes(search) || this.body.includes(search)
+    }
+
 }
 
 class Answer extends Post {
@@ -323,6 +357,11 @@ class Answer extends Post {
         const footer = super.render_footer();
         return [header, this.body, footer].join("\n")
     }
+
+    matches_search(search) {
+        return super.matches_search(search) || this.body.includes(search)
+    }
+
 }
 
 function convert_posts(text, mapper, context) {
