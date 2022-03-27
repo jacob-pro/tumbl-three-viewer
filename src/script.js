@@ -55,7 +55,7 @@ $( document ).ready(function() {
             return a.post_id - b.post_id;
         });
         for (const post of POSTS_DATA) {
-            POSTS_DIV.append("<div class='post'></div>")
+            POSTS_DIV.append("<div class='post'>post</div>")
         }
         console.log(POSTS_DATA)
     }

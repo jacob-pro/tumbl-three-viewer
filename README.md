@@ -1,7 +1,9 @@
-# TumblThree archive viewer
+# TumblThree Archive Viewer
+
+Warning this is very experimental; it may not work in all cases
 
 ## Usage
 
-From your Blogs directory run the serve script.
+From your `Blogs` directory run the serve script.
 
-Go to `localhost:7007`
+Open <http://localhost:7007> in your browser.
