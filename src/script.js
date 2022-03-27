@@ -5,6 +5,7 @@ $( document ).ready(function() {
     const FORM = $("#form")
     const POSTS_DIV = $("#posts");
     const PAGE_SIZE = 100;
+    const TYPE = $("#type")
 
     let ALL_POSTS = [];
     let FILTERED_POSTS = [];
@@ -59,6 +60,7 @@ $( document ).ready(function() {
             update_page_choice();
             render_posts();
             SEARCH.attr('disabled' , false);
+            TYPE.attr('disabled' , false);
         }).catch((e) => {
             alert(e);
         })
@@ -66,6 +68,12 @@ $( document ).ready(function() {
 
     PAGE_CHOICE.change(function() {
         apply_filters();
+        render_posts();
+    });
+
+    TYPE.change(function() {
+        apply_filters();
+        update_page_choice();
         render_posts();
     });
 
@@ -81,7 +89,11 @@ $( document ).ready(function() {
     // Filters by search and selected page number
     function apply_filters() {
         const search = SEARCH[0].value;
+        const type = TYPE[0].value;
         FILTERED_POSTS = ALL_POSTS.filter((p) => {
+            return type === "All" || type === p.constructor.name
+        })
+        FILTERED_POSTS = FILTERED_POSTS.filter((p) => {
             return search.length === 0 || p.matches_search(search)
         })
         FILTERED_POSTS.sort(function (a, b) {
