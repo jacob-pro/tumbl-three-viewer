@@ -12,10 +12,21 @@
 </head>
 <body>
 
-<label for="blog-choice">Choose a blog:</label>
-<select id="blog-choice" name="blog-choice" disabled>
-    <option value="n/a">Loading</option>
-</select>
+<form id="form">
+    <label for="blog-choice">Choose a blog:</label>
+    <select id="blog-choice" name="blog-choice" disabled>
+        <option value="n/a">Loading</option>
+    </select>
+
+    <label for="page-choice">Choose a page:</label>
+    <select id="page-choice" name="page-choice" disabled>
+        <option value="1">1</option>
+    </select>
+
+    <label for="search">Search Posts:</label>
+    <input type="text" id="search" name="search" placeholder="Search..." disabled>
+
+</form>
 
 <div id="posts"></div>
 

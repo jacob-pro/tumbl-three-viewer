@@ -1,7 +1,13 @@
 $( document ).ready(function() {
     const BLOG_CHOICE = $("#blog-choice");
+    const SEARCH = $("#search");
+    const PAGE_CHOICE = $("#page-choice");
     const POSTS_DIV = $("#posts");
+    const PAGE_SIZE = 100;
     let POSTS_DATA = [];
+    let POSTS_DATA_PROCESSED = [];
+
+    $("#form").trigger("reset");
 
     // Convert nginx directory index into list of blogs
     function parse_blogs_list(res) {
@@ -19,6 +25,22 @@ $( document ).ready(function() {
         BLOG_CHOICE.append(placeholder);
         filtered.forEach((d) => BLOG_CHOICE.append(new Option(d,d)));
         BLOG_CHOICE.attr('disabled' , false);
+    }
+
+    function update_page_choice() {
+        PAGE_CHOICE.empty()
+        if (POSTS_DATA.length < 1) {
+            const placeholder = new Option("1", "1");
+            placeholder.setAttribute('disabled', true);
+            PAGE_CHOICE.append(placeholder)
+            PAGE_CHOICE.attr('disabled' , true);
+        } else {
+            const pages = Math.ceil(POSTS_DATA.length / PAGE_SIZE)
+            for (let i = 1; i <= pages; i++) {
+                PAGE_CHOICE.append(new Option(i.toString(), i.toString()));
+            }
+            PAGE_CHOICE.attr('disabled' , false);
+        }
     }
 
     $.get( "/blogs/" ).then(
@@ -43,27 +65,44 @@ $( document ).ready(function() {
         ]
         $.when(...requests).then((...responses) => {
             POSTS_DATA = responses.flat()
-            render_posts()
+            update_page_choice();
+            render_posts();
+            SEARCH.attr('disabled' , false);
         }).catch((e) => {
             alert(e);
         })
     });
 
+    PAGE_CHOICE.change(function() {
+        render_posts();
+    });
+
+    SEARCH.change(function(e) {
+        clearTimeout(this.thread);
+        this.thread = setTimeout(function(){
+
+        }, 250);
+    });
+
     function render_posts() {
         POSTS_DIV.empty();
         POSTS_DATA.sort(function (a, b) {
-            return a.post_id - b.post_id;
+            return a.id - b.id;
         });
-        for (const post of POSTS_DATA) {
-            POSTS_DIV.append("<div class='post'>post</div>")
+        const page_number = parseInt(PAGE_CHOICE[0].value) - 1;
+        const start = page_number * PAGE_SIZE
+        const stop = (page_number + 1) * PAGE_SIZE
+        for (const post of POSTS_DATA.slice(start, stop)) {
+            const render = post.render();
+            const type = post.constructor.name
+            POSTS_DIV.append(`<div class='post ${type}' id="${post.id}">${render}</div>`)
         }
-        console.log(POSTS_DATA)
     }
 
 });
 
 class Post {
-    post_id;
+    id;
     date;
     tags;
 
@@ -77,7 +116,7 @@ class Post {
     static TAGS = "Tags: "
 
     constructor(lines) {
-        this.post_id = parseInt(Post.line_starting_with(lines, Post.POST_ID));
+        this.id = parseInt(Post.line_starting_with(lines, Post.POST_ID));
         this.date = Post.line_starting_with(lines, Post.DATE);
         this.tags = Post.line_starting_with(lines, Post.TAGS);
     }
@@ -151,13 +190,23 @@ class Post {
         return `/blogs/${blog}/${subst}`
     }
 
+    render_header() {
+        return `<p>${this.date}</p>`
+    }
+
+    render_footer() {
+        return `<p>${this.tags}</p>`
+    }
+
 }
 
 class Image extends Post {
     photo_urls;
+    caption;
 
     static PHOTO_URL = "Photo url: "
     static PHOTO_SET_URLS = "Photo set urls: "
+    static PHOTO_CAPTION = "Photo caption: "
 
     constructor(lines, blog) {
         super(lines);
@@ -168,12 +217,20 @@ class Image extends Post {
             this.photo_urls = [Post.line_starting_with(lines, Image.PHOTO_URL)]
         }
         this.photo_urls = this.photo_urls.map((u) => Post.fix_url(u, blog))
+        this.caption = Post.line_starting_with(lines, Image.PHOTO_CAPTION)
     }
 
     static load(blog) {
         return Post.get_blog_file(blog, "images.txt").then((res) => {
             return convert_posts(res, (lines) => new Image(lines, blog), "images")
         })
+    }
+
+    render() {
+        const header = super.render_header();
+        const images = this.photo_urls.map((u) => `<img src="${u}" alt="">`).join("\n")
+        const footer = super.render_footer();
+        return [header, this.caption, images, footer].join("\n")
     }
 
 }
@@ -200,6 +257,9 @@ class Video extends Post {
         const lastUnderscore = baseFix.lastIndexOf('_')
         const left = baseFix.slice(0, lastUnderscore)
         const right = baseFix.slice(lastDot)
+        if (left.endsWith("tumblr")) {
+            return baseFix
+        }
         return left + right
     }
 
@@ -209,6 +269,12 @@ class Video extends Post {
         })
     }
 
+    render() {
+        const header = super.render_header();
+        const footer = super.render_footer();
+        const video = `<video controls><source src="${this.url}"></video>`
+        return [header, this.caption, video, footer].join("\n")
+    }
 }
 
 class Text extends Post {
@@ -229,6 +295,13 @@ class Text extends Post {
         })
     }
 
+    render() {
+        const header = super.render_header();
+        const footer = super.render_footer();
+        const title = `<h4>${this.title}</h4>`
+        return [header, title, this.body, footer].join("\n")
+    }
+
 }
 
 class Answer extends Post {
@@ -245,6 +318,11 @@ class Answer extends Post {
         })
     }
 
+    render() {
+        const header = super.render_header();
+        const footer = super.render_footer();
+        return [header, this.body, footer].join("\n")
+    }
 }
 
 function convert_posts(text, mapper, context) {
@@ -257,6 +335,11 @@ function convert_posts(text, mapper, context) {
             const id = post[0]
             console.warn(`Unable to convert post: ${id}, due to: ${e}, context: ${context}`)
         }
+    }
+    if (posts.length) {
+        console.log({
+            [context]: posts,
+        })
     }
     return posts
 }
