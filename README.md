@@ -7,3 +7,5 @@ Warning this is very experimental; it may not work in all cases
 From your `Blogs` directory run the serve script.
 
 Open <http://localhost:7007> in your browser.
+
+Only works where you have downloaded metadata in text format
