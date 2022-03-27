@@ -49,7 +49,6 @@ $( document ).ready(function() {
 
     BLOG_CHOICE.change(function() {
         const blog = $(this).val();
-        console.log("Loading blog files: " + blog);
         const requests = [
             Image.load(blog),
             Text.load(blog),
@@ -75,19 +74,21 @@ $( document ).ready(function() {
     });
 
     TYPE.change(function() {
-        apply_filters();
-        update_page_choice();
-        render_posts();
+        refresh()
     });
 
     SEARCH.on("input", function(e) {
         clearTimeout(this.thread);
         this.thread = setTimeout(function() {
-            apply_filters();
-            update_page_choice();
-            render_posts();
+            refresh()
         }, 150);
     });
+
+    function refresh() {
+        apply_filters();
+        update_page_choice();
+        render_posts();
+    }
 
     // Filters by search and selected page number
     function apply_filters() {
@@ -150,10 +151,17 @@ class Post {
     static REBLOG_NAME = "Reblog name: "
     static TAGS = "Tags: "
 
-    constructor(lines) {
-        this.id = parseInt(Post.line_starting_with(lines, Post.POST_ID));
-        this.date = Post.line_starting_with(lines, Post.DATE);
-        this.tags = Post.line_starting_with(lines, Post.TAGS);
+    constructor(id, date, tags) {
+        this.id = id
+        this.date = date
+        this.tags = tags
+    }
+
+    static deserialize_from_text(lines) {
+        const id = parseInt(Post.line_starting_with(lines, Post.POST_ID));
+        const date = Post.line_starting_with(lines, Post.DATE);
+        const tags = Post.line_starting_with(lines, Post.TAGS);
+        return [id, date, tags];
     }
 
     // Returns the contents or null if it does not exist
@@ -169,7 +177,7 @@ class Post {
 
     // Returns an array of posts
     // Where each post is an array of strings (lines)
-    static split_posts(all_posts) {
+    static split_posts_in_text(all_posts) {
         if (all_posts == null) {
             return []
         }
@@ -188,9 +196,8 @@ class Post {
     }
 
     // Given a post (array of lines), find the contents between two identifiers
-    // Inclusive to include the contents of the left line
     // Set right as null to collect all remaining lines
-    static contents_between(lines, left, right) {
+    static contents_between_lines(lines, left, right) {
         const subset = []
         var hit = false
         for (const line of lines) {
@@ -230,7 +237,7 @@ class Post {
     }
 
     render_footer() {
-        return `<p>${this.tags}</p>`
+        return `<p>Tags: ${this.tags}</p>`
     }
 
     matches_search(search) {
@@ -247,21 +254,29 @@ class Image extends Post {
     static PHOTO_SET_URLS = "Photo set urls: "
     static PHOTO_CAPTION = "Photo caption: "
 
-    constructor(lines, blog) {
-        super(lines);
+    constructor(id, date, tags, photo_urls, caption) {
+        super(id, date, tags);
+        this.photo_urls = photo_urls
+        this.caption = caption
+    }
+
+    static deserialize_from_text(lines, blog) {
+        var [id, date, tags] = Post.deserialize_from_text(lines)
         const photo_set_urls = Post.line_starting_with(lines, Image.PHOTO_SET_URLS).split(" ").filter((u) => u.length > 0)
+        var photo_urls
         if (photo_set_urls.length > 0) {
-            this.photo_urls = photo_set_urls
+            photo_urls = photo_set_urls
         } else {
-            this.photo_urls = [Post.line_starting_with(lines, Image.PHOTO_URL)]
+            photo_urls = [Post.line_starting_with(lines, Image.PHOTO_URL)]
         }
-        this.photo_urls = this.photo_urls.map((u) => Post.fix_url(u, blog))
-        this.caption = Post.line_starting_with(lines, Image.PHOTO_CAPTION)
+        photo_urls = photo_urls.map((u) => Post.fix_url(u, blog))
+        const caption = Post.line_starting_with(lines, Image.PHOTO_CAPTION)
+        return new Image(id, date, tags, photo_urls, caption)
     }
 
     static load(blog) {
         return Post.get_blog_file(blog, "images.txt").then((res) => {
-            return convert_posts(res, (lines) => new Image(lines, blog), "images")
+            return convert_posts(res, (lines) => Image.deserialize_from_text(lines, blog), "images")
         })
     }
 
@@ -285,13 +300,20 @@ class Video extends Post {
     static VIDEO_CAPTION = "Video caption: "
     static VIDEO_PLAYER = "Video player: "
 
-    constructor(lines, blog) {
-        super(lines);
-        const player = Post.contents_between(lines, Video.VIDEO_PLAYER);
+    constructor(id, date, tags, url, caption) {
+        super(id, date, tags)
+        this.url = url
+        this.caption = caption
+    }
+
+    static deserialize_from_text(lines, blog) {
+        var [id, date, tags] = Post.deserialize_from_text(lines)
+        const player = Post.contents_between_lines(lines, Video.VIDEO_PLAYER);
         const html = $.parseHTML( player );
-        const url = html[0].children[0].attributes["src"].value;
-        this.caption = Post.line_starting_with(lines, Video.VIDEO_CAPTION);
-        this.url = Video.fix_url(url, blog)
+        var url = html[0].children[0].attributes["src"].value;
+        url = Video.fix_url(url, blog)
+        const caption = Post.line_starting_with(lines, Video.VIDEO_CAPTION);
+        return new Video(id, date, tags, url, caption)
     }
 
     static fix_url(url, blog) {
@@ -308,7 +330,7 @@ class Video extends Post {
 
     static load(blog) {
         return Post.get_blog_file(blog, "videos.txt").then((res) => {
-            return convert_posts(res, (lines) => new Video(lines, blog), "videos")
+            return convert_posts(res, (lines) => Video.deserialize_from_text(lines, blog), "videos")
         })
     }
 
@@ -330,15 +352,22 @@ class Text extends Post {
 
     static TITLE = "Title: "
 
-    constructor(lines) {
-        super(lines);
-        this.title = Post.line_starting_with(lines, Text.TITLE)
-        this.body = Post.contents_between(lines, Text.TITLE, Post.TAGS)
+    constructor(id, date, tags, title, body) {
+        super(id, date, tags);
+        this.title = title
+        this.body = body
+    }
+
+    static deserialize_from_text(lines) {
+        var [id, date, tags] = Post.deserialize_from_text(lines)
+        const title = Post.line_starting_with(lines, Text.TITLE)
+        const body = Post.contents_between_lines(lines, Text.TITLE, Post.TAGS)
+        return new Text(id, date, tags, title, body)
     }
 
     static load(blog) {
         return Post.get_blog_file(blog, "texts.txt").then((res) => {
-            return convert_posts(res, (lines) => new Text(lines), "texts")
+            return convert_posts(res, (lines) => Text.deserialize_from_text(lines), "texts")
         })
     }
 
@@ -358,14 +387,20 @@ class Text extends Post {
 class Answer extends Post {
     body;
 
-    constructor(lines) {
-        super(lines);
-        this.body = Post.contents_between(lines, Post.REBLOG_NAME, Post.TAGS)
+    constructor(id, date, tags, body) {
+        super(id, date, tags);
+        this.body = body
+    }
+
+    static deserialize_from_text(lines, blog) {
+        var [id, date, tags] = Post.deserialize_from_text(lines)
+        const body = Post.contents_between_lines(lines, Post.REBLOG_NAME, Post.TAGS)
+        return new Answer(id, date, tags, body)
     }
 
     static load(blog) {
         return Post.get_blog_file(blog, "answers.txt").then((res) => {
-            return convert_posts(res, (lines) => new Answer(lines), "answers")
+            return convert_posts(res, (lines) => Answer.deserialize_from_text(lines), "answers")
         })
     }
 
@@ -382,20 +417,15 @@ class Answer extends Post {
 }
 
 function convert_posts(text, mapper, context) {
-    const split = Post.split_posts(text);
+    const split = Post.split_posts_in_text(text);
     let posts = []
     for (const post of split) {
         try {
             posts.push(mapper(post))
         } catch (e) {
             const id = post[0]
-            console.warn(`Unable to convert post: ${id}, due to: ${e}, context: ${context}`)
+            console.error(`Unable to convert post: ${id}, due to: ${e}, context: ${context}`)
         }
-    }
-    if (posts.length) {
-        console.log({
-            [context]: posts,
-        })
     }
     return posts
 }
