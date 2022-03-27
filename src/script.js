@@ -6,6 +6,8 @@ $( document ).ready(function() {
     const POSTS_DIV = $("#posts");
     const PAGE_SIZE = 100;
     const TYPE = $("#type")
+    const TOTAL = $("#total")
+    const SHOWING = $("#showing")
 
     let ALL_POSTS = [];
     let FILTERED_POSTS = [];
@@ -56,6 +58,7 @@ $( document ).ready(function() {
         ]
         $.when(...requests).then((...responses) => {
             ALL_POSTS = responses.flat()
+            TOTAL.text(`Total: ${ALL_POSTS.length}`)
             apply_filters();
             update_page_choice();
             render_posts();
@@ -122,7 +125,9 @@ $( document ).ready(function() {
         const page_number = parseInt(PAGE_CHOICE[0].value) - 1;
         const start = page_number * PAGE_SIZE
         const stop = (page_number + 1) * PAGE_SIZE
-        for (const post of FILTERED_POSTS.slice(start, stop)) {
+        const posts = FILTERED_POSTS.slice(start, stop);
+        SHOWING.text(`Showing: ${posts.length}`)
+        for (const post of posts) {
             const render = post.render();
             const type = post.constructor.name
             POSTS_DIV.append(`<div class='post ${type}' id="${post.id}">${render}</div>`)
