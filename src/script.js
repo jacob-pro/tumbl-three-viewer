@@ -1,3 +1,5 @@
+const IMAGE_REGEX = new RegExp('src=\"https:\\/\\/.+media.tumblr\\.com.+\"');
+
 $( document ).ready(function() {
     const BLOG_CHOICE = $("#blog-choice");
     const SEARCH = $("#search");
@@ -164,6 +166,13 @@ class Post {
         return [id, date, tags];
     }
 
+    static deserialize_from_json(json) {
+        const id = parseInt(json.id);
+        const date = json.date;
+        const tags = json.tags.join(", ");
+        return [id, date, tags];
+    }
+
     // Returns the contents or null if it does not exist
     static get_blog_file(blog, file) {
         const path = `/blogs/${blog}/${file}`;
@@ -178,9 +187,6 @@ class Post {
     // Returns an array of posts
     // Where each post is an array of strings (lines)
     static split_posts_in_text(all_posts) {
-        if (all_posts == null) {
-            return []
-        }
         const lines = all_posts.split(/\r?\n/);
         const out = []
         var buffer = [];
@@ -261,7 +267,7 @@ class Image extends Post {
     }
 
     static deserialize_from_text(lines, blog) {
-        var [id, date, tags] = Post.deserialize_from_text(lines)
+        const [id, date, tags] = Post.deserialize_from_text(lines)
         const photo_set_urls = Post.line_starting_with(lines, Image.PHOTO_SET_URLS).split(" ").filter((u) => u.length > 0)
         var photo_urls
         if (photo_set_urls.length > 0) {
@@ -274,9 +280,18 @@ class Image extends Post {
         return new Image(id, date, tags, photo_urls, caption)
     }
 
+    static deserialize_from_json(json, blog) {
+        const [id, date, tags] = Post.deserialize_from_json(json)
+        const urls = json.post_html.match(IMAGE_REGEX).map((u) => Post.fix_url(u.slice(1, -1), blog))
+        return new Image(id, date, tags, urls, json.caption)
+    }
+
     static load(blog) {
         return Post.get_blog_file(blog, "images.txt").then((res) => {
-            return convert_posts(res, (lines) => Image.deserialize_from_text(lines, blog), "images")
+            return convert_posts(res,
+                (lines) => Image.deserialize_from_text(lines, blog),
+                (json) => Image.deserialize_from_json(json, blog),
+                )
         })
     }
 
@@ -307,12 +322,19 @@ class Video extends Post {
     }
 
     static deserialize_from_text(lines, blog) {
-        var [id, date, tags] = Post.deserialize_from_text(lines)
+        const [id, date, tags] = Post.deserialize_from_text(lines)
         const player = Post.contents_between_lines(lines, Video.VIDEO_PLAYER);
         const html = $.parseHTML( player );
-        var url = html[0].children[0].attributes["src"].value;
+        let url = html[0].children[0].attributes["src"].value;
         url = Video.fix_url(url, blog)
         const caption = Post.line_starting_with(lines, Video.VIDEO_CAPTION);
+        return new Video(id, date, tags, url, caption)
+    }
+
+    static deserialize_from_json(json, blog) {
+        const [id, date, tags] = Post.deserialize_from_json(json);
+        const url = Post.fix_url(json.video_url, blog);
+        const caption = json.caption;
         return new Video(id, date, tags, url, caption)
     }
 
@@ -330,15 +352,19 @@ class Video extends Post {
 
     static load(blog) {
         return Post.get_blog_file(blog, "videos.txt").then((res) => {
-            return convert_posts(res, (lines) => Video.deserialize_from_text(lines, blog), "videos")
+            return convert_posts(res,
+                (lines) => Video.deserialize_from_text(lines, blog),
+                (json) => Video.deserialize_from_json(json, blog),
+                )
         })
     }
 
     render() {
         const header = super.render_header();
         const footer = super.render_footer();
+        const caption = `<div>${this.caption}</div>`
         const video = `<video controls><source src="${this.url}"></video>`
-        return [header, this.caption, video, footer].join("\n")
+        return [header, caption, video, footer].join("\n")
     }
 
     matches_search(search) {
@@ -359,15 +385,23 @@ class Text extends Post {
     }
 
     static deserialize_from_text(lines) {
-        var [id, date, tags] = Post.deserialize_from_text(lines)
+        const [id, date, tags] = Post.deserialize_from_text(lines)
         const title = Post.line_starting_with(lines, Text.TITLE)
         const body = Post.contents_between_lines(lines, Text.TITLE, Post.TAGS)
         return new Text(id, date, tags, title, body)
     }
 
+    static deserialize_from_json(json, blog) {
+        const [id, date, tags] = Post.deserialize_from_json(json)
+        return new Text(id, date, tags)
+    }
+
     static load(blog) {
         return Post.get_blog_file(blog, "texts.txt").then((res) => {
-            return convert_posts(res, (lines) => Text.deserialize_from_text(lines), "texts")
+            return convert_posts(res,
+                (lines) => Text.deserialize_from_text(lines, blog),
+                (json) => Text.deserialize_from_json(json, blog),
+                )
         })
     }
 
@@ -393,14 +427,22 @@ class Answer extends Post {
     }
 
     static deserialize_from_text(lines, blog) {
-        var [id, date, tags] = Post.deserialize_from_text(lines)
+        const [id, date, tags] = Post.deserialize_from_text(lines)
         const body = Post.contents_between_lines(lines, Post.REBLOG_NAME, Post.TAGS)
         return new Answer(id, date, tags, body)
     }
 
+    static deserialize_from_json(json, blog) {
+        const [id, date, tags] = Post.deserialize_from_json(json)
+        return new Answer(id, date, tags)
+    }
+
     static load(blog) {
         return Post.get_blog_file(blog, "answers.txt").then((res) => {
-            return convert_posts(res, (lines) => Answer.deserialize_from_text(lines), "answers")
+            return convert_posts(res,
+                (lines) => Answer.deserialize_from_text(lines, blog),
+                (json) => Answer.deserialize_from_json(json, blog),
+                )
         })
     }
 
@@ -416,15 +458,25 @@ class Answer extends Post {
 
 }
 
-function convert_posts(text, mapper, context) {
-    const split = Post.split_posts_in_text(text);
+function convert_posts(text, text_mapper, json_mapper, context) {
     let posts = []
+    if (!text) {
+        return posts
+    }
+    let split, mapper
+    if (text.startsWith("[")) {
+        split = JSON.parse(text)
+        mapper = json_mapper
+    } else {
+        split = Post.split_posts_in_text(text);
+        mapper = text_mapper
+    }
     for (const post of split) {
         try {
             posts.push(mapper(post))
         } catch (e) {
-            const id = post[0]
-            console.error(`Unable to convert post: ${id}, due to: ${e}, context: ${context}`)
+            console.error(`Unable to convert post: due to: ${e}`)
+            console.error(post)
         }
     }
     return posts
