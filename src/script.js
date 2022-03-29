@@ -10,6 +10,7 @@ $( document ).ready(function() {
     const TYPE = $("#type")
     const TOTAL = $("#total")
     const SHOWING = $("#showing")
+    const SORT = $("#sort")
 
     let ALL_POSTS = [];
     let FILTERED_POSTS = [];
@@ -18,7 +19,6 @@ $( document ).ready(function() {
     FORM.submit(function( event ) {
         event.preventDefault();
     });
-    SEARCH.attr('disabled' , true);
 
     $.get( "/blogs/" ).then(
         function(res) {
@@ -63,8 +63,6 @@ $( document ).ready(function() {
             apply_filters();
             update_page_choice();
             render_posts();
-            SEARCH.attr('disabled' , false);
-            TYPE.attr('disabled' , false);
         }).catch((e) => {
             alert(e);
         })
@@ -75,9 +73,9 @@ $( document ).ready(function() {
         render_posts();
     });
 
-    TYPE.change(function() {
-        refresh()
-    });
+    TYPE.change(function() { refresh() });
+
+    SORT.change(function() { refresh() });
 
     SEARCH.on("input", function(e) {
         clearTimeout(this.thread);
@@ -96,6 +94,7 @@ $( document ).ready(function() {
     function apply_filters() {
         const search = SEARCH[0].value;
         const type = TYPE[0].value;
+        const sort = SORT[0].value;
         FILTERED_POSTS = ALL_POSTS.filter((p) => {
             return type === "All" || type === p.constructor.name
         })
@@ -103,7 +102,11 @@ $( document ).ready(function() {
             return search.length === 0 || p.matches_search(search)
         })
         FILTERED_POSTS.sort(function (a, b) {
-            return a.id - b.id;
+            if (sort === "Oldest") {
+                return a.id - b.id;
+            } else {
+                return b.id - a.id;
+            }
         });
     }
 
