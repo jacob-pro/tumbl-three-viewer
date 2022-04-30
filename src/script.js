@@ -1,5 +1,3 @@
-const IMAGE_REGEX = new RegExp('src=\"https:\\/\\/.+media.tumblr\\.com.+\"');
-
 $( document ).ready(function() {
     const BLOG_CHOICE = $("#blog-choice");
     const SEARCH = $("#search");
@@ -21,8 +19,19 @@ $( document ).ready(function() {
     });
 
     $.get( "/blogs/" ).then(
-        function(res) {
-            parse_blogs_list(res);
+        function(list) {
+            const dir_names = list.map((item) => item.name);
+            const filtered = dir_names.filter((e) => e !== "Index")
+            if (filtered.length < 1) {
+                throw new Error("No blogs found")
+            }
+            BLOG_CHOICE.empty();
+            const placeholder = new Option("Choose a blog", "");
+            placeholder.setAttribute('disabled', true);
+            placeholder.setAttribute('selected', true);
+            BLOG_CHOICE.append(placeholder);
+            filtered.forEach((d) => BLOG_CHOICE.append(new Option(d,d)));
+            BLOG_CHOICE.attr('disabled' , false);
         },
         function (e) {
             throw new Error("Get /blogs/ failed")
@@ -30,24 +39,6 @@ $( document ).ready(function() {
     ).catch((e) => {
         alert(e);
     })
-
-    // Convert nginx directory index into list of blogs
-    function parse_blogs_list(res) {
-        const html = $.parseHTML( res );
-        const array = Array.from(html[5].children).slice(1)
-        const mapped = array.map((e) => e.text.slice(0, -1))
-        const filtered = mapped.filter((e) => e !== "Index")
-        if (filtered.length < 1) {
-            throw new Error("No blogs found")
-        }
-        BLOG_CHOICE.empty();
-        const placeholder = new Option("Choose a blog", "");
-        placeholder.setAttribute('disabled', true);
-        placeholder.setAttribute('selected', true);
-        BLOG_CHOICE.append(placeholder);
-        filtered.forEach((d) => BLOG_CHOICE.append(new Option(d,d)));
-        BLOG_CHOICE.attr('disabled' , false);
-    }
 
     BLOG_CHOICE.change(function() {
         const blog = $(this).val();
@@ -169,13 +160,6 @@ class Post {
         return [id, date, tags];
     }
 
-    static deserialize_from_json(json) {
-        const id = parseInt(json.id);
-        const date = json.date;
-        const tags = json.tags.join(", ");
-        return [id, date, tags];
-    }
-
     // Returns the contents or null if it does not exist
     static get_blog_file(blog, file) {
         const path = `/blogs/${blog}/${file}`;
@@ -283,18 +267,9 @@ class Image extends Post {
         return new Image(id, date, tags, photo_urls, caption)
     }
 
-    static deserialize_from_json(json, blog) {
-        const [id, date, tags] = Post.deserialize_from_json(json)
-        const urls = json.post_html.match(IMAGE_REGEX).map((u) => Post.fix_url(u.slice(1, -1), blog))
-        return new Image(id, date, tags, urls, json.caption)
-    }
-
     static load(blog) {
         return Post.get_blog_file(blog, "images.txt").then((res) => {
-            return convert_posts(res,
-                (lines) => Image.deserialize_from_text(lines, blog),
-                (json) => Image.deserialize_from_json(json, blog),
-                )
+            return convert_posts(res, (lines) => Image.deserialize_from_text(lines, blog))
         })
     }
 
@@ -334,12 +309,6 @@ class Video extends Post {
         return new Video(id, date, tags, url, caption)
     }
 
-    static deserialize_from_json(json, blog) {
-        const [id, date, tags] = Post.deserialize_from_json(json);
-        const url = Post.fix_url(json.video_url, blog);
-        const caption = json.caption;
-        return new Video(id, date, tags, url, caption)
-    }
 
     static fix_url(url, blog) {
         const baseFix = Post.fix_url(url, blog)
@@ -355,10 +324,7 @@ class Video extends Post {
 
     static load(blog) {
         return Post.get_blog_file(blog, "videos.txt").then((res) => {
-            return convert_posts(res,
-                (lines) => Video.deserialize_from_text(lines, blog),
-                (json) => Video.deserialize_from_json(json, blog),
-                )
+            return convert_posts(res, (lines) => Video.deserialize_from_text(lines, blog))
         })
     }
 
@@ -394,17 +360,10 @@ class Text extends Post {
         return new Text(id, date, tags, title, body)
     }
 
-    static deserialize_from_json(json, blog) {
-        const [id, date, tags] = Post.deserialize_from_json(json)
-        return new Text(id, date, tags)
-    }
 
     static load(blog) {
         return Post.get_blog_file(blog, "texts.txt").then((res) => {
-            return convert_posts(res,
-                (lines) => Text.deserialize_from_text(lines, blog),
-                (json) => Text.deserialize_from_json(json, blog),
-                )
+            return convert_posts(res, (lines) => Text.deserialize_from_text(lines, blog))
         })
     }
 
@@ -435,17 +394,9 @@ class Answer extends Post {
         return new Answer(id, date, tags, body)
     }
 
-    static deserialize_from_json(json, blog) {
-        const [id, date, tags] = Post.deserialize_from_json(json)
-        return new Answer(id, date, tags)
-    }
-
     static load(blog) {
         return Post.get_blog_file(blog, "answers.txt").then((res) => {
-            return convert_posts(res,
-                (lines) => Answer.deserialize_from_text(lines, blog),
-                (json) => Answer.deserialize_from_json(json, blog),
-                )
+            return convert_posts(res, (lines) => Answer.deserialize_from_text(lines, blog))
         })
     }
 
@@ -461,22 +412,18 @@ class Answer extends Post {
 
 }
 
-function convert_posts(text, text_mapper, json_mapper, context) {
+function convert_posts(text, text_mapper) {
     let posts = []
     if (!text) {
         return posts
     }
-    let split, mapper
     if (text.startsWith("[")) {
-        split = JSON.parse(text)
-        mapper = json_mapper
-    } else {
-        split = Post.split_posts_in_text(text);
-        mapper = text_mapper
+        throw new Error("JSON unsupported")
     }
+    const split = Post.split_posts_in_text(text);
     for (const post of split) {
         try {
-            posts.push(mapper(post))
+            posts.push(text_mapper(post))
         } catch (e) {
             console.error(`Unable to convert post: due to: ${e}`)
             console.error(post)
