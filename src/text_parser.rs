@@ -91,13 +91,15 @@ pub fn read_text_into_map(input: String, fields: &[Field]) -> TextMap {
         } else {
             format!("{}: ", field.field_name)
         };
-        while let Some(line) = lines.next() {
+        let mut cloned = lines.clone();
+        while let Some(line) = cloned.next() {
             if prefix.is_empty() || line.starts_with(&prefix) {
                 let mut parts = vec![line[prefix.len()..].to_string()];
-                while lines.peek().is_some() && (field.read_next_line)(lines.peek().unwrap()) {
-                    parts.push(lines.next().unwrap().to_owned());
+                while cloned.peek().is_some() && (field.read_next_line)(cloned.peek().unwrap()) {
+                    parts.push(cloned.next().unwrap().to_owned());
                 }
                 map.insert(field.field_name, parts.join("\n"));
+                lines = cloned;
                 break;
             }
         }
@@ -130,10 +132,10 @@ impl PostCommon {
                 .remove(FIELD_POST_ID.field_name)
                 .context("missing id")?
                 .parse()?,
-            date: map.remove(FIELD_DATE.field_name).context("missing id")?,
+            date: map.remove(FIELD_DATE.field_name),
             tags: map
                 .remove(FIELD_TAGS.field_name)
-                .context("missing tags")?
+                .unwrap_or_default()
                 .split(", ")
                 .filter(|t| !t.is_empty())
                 .map(ToOwned::to_owned)
@@ -143,39 +145,53 @@ impl PostCommon {
 }
 
 impl Image {
-    pub fn from_text_map(map: &mut TextMap, blog_dir: &Path) -> anyhow::Result<Self> {
+    pub fn from_text_map(map: &mut TextMap, blog_dir: &Path) -> Self {
         let mut urls = map
             .remove(FIELD_PHOTO_SET_URLS.field_name)
-            .context("Missing photo set urls")?
+            .unwrap_or_default()
             .split_whitespace()
             .map(ToOwned::to_owned)
             .collect::<Vec<_>>();
         if urls.is_empty() {
-            urls = vec![map
-                .remove(FIELD_PHOTO_URL.field_name)
-                .context("Missing photo url")?];
+            if let Some(url) = map.remove(FIELD_PHOTO_URL.field_name) {
+                urls.push(url);
+            }
         }
-        Ok(Image {
+        if urls.is_empty() {
+            log::warn!("Unable to find any photo URLs");
+        }
+        Self {
             photo_urls: urls
                 .iter()
                 .map(|u| prepend_blog_directory(url_to_file_name(u), blog_dir))
                 .collect(),
-            caption: map
-                .remove(FIELD_PHOTO_CAPTION.field_name)
-                .context("Missing photo caption")?,
-        })
+            caption: map.remove(FIELD_PHOTO_CAPTION.field_name),
+        }
     }
 }
 
 impl Video {
-    pub fn from_text_map(map: &mut TextMap, blog_dir: &Path) -> anyhow::Result<Self> {
+    pub fn from_text_map(map: &mut TextMap, blog_dir: &Path) -> Self {
+        let url = Self::get_video_url(map, blog_dir)
+            .map_err(|e| {
+                log::warn!("Unable to get video url: {}", e);
+                e
+            })
+            .ok();
+        Video {
+            url,
+            caption: map.remove(FIELD_VIDEO_CAPTION.field_name),
+        }
+    }
+
+    fn get_video_url(map: &mut TextMap, blog_dir: &Path) -> anyhow::Result<String> {
         let player = map
             .remove(FIELD_VIDEO_PLAYER.field_name)
             .context("Missing video player")?;
         let fragment = Html::parse_fragment(&player);
-        let selector = Selector::parse("source").unwrap();
+        static SELECTOR: Lazy<Selector> = Lazy::new(|| Selector::parse("source").unwrap());
         let video = fragment
-            .select(&selector)
+            .select(&SELECTOR)
             .next()
             .context("Missing source tag")?;
         let src = video.value().attr("src").context("missing src")?;
@@ -184,33 +200,24 @@ impl Video {
         let captures = REGEX.captures(src).context("Couldn't match video regex")?;
         let filename = format!("{}.mp4", captures.get(1).unwrap().as_str());
 
-        let url = prepend_blog_directory(filename.as_str(), blog_dir);
-
-        Ok(Video {
-            url,
-            caption: map
-                .remove(FIELD_VIDEO_CAPTION.field_name)
-                .context("Missing video caption")?,
-        })
+        Ok(prepend_blog_directory(filename.as_str(), blog_dir))
     }
 }
 
 impl Text {
-    pub fn from_text_map(map: &mut TextMap) -> anyhow::Result<Self> {
-        Ok(Text {
-            title: map
-                .remove(FIELD_TITLE.field_name)
-                .context("Missing title")?,
-            body: map.remove(FIELD_BODY.field_name).context("Missing body")?,
-        })
+    pub fn from_text_map(map: &mut TextMap) -> Self {
+        Self {
+            title: map.remove(FIELD_TITLE.field_name),
+            body: map.remove(FIELD_BODY.field_name),
+        }
     }
 }
 
 impl Answer {
-    pub fn from_text_map(map: &mut TextMap) -> anyhow::Result<Self> {
-        Ok(Answer {
-            body: map.remove(FIELD_BODY.field_name).context("Missing body")?,
-        })
+    pub fn from_text_map(map: &mut TextMap) -> Self {
+        Self {
+            body: map.remove(FIELD_BODY.field_name),
+        }
     }
 }
 

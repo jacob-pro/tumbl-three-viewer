@@ -19,10 +19,10 @@ use std::path::{Path, PathBuf};
 use std::{fs, io};
 use tokio::select;
 
-const VIDEOS_METADATA: &str = "videos.txt";
-const IMAGES_METADATA: &str = "images.txt";
-const TEXTS_METADATA: &str = "texts.txt";
-const ANSWERS_METADATA: &str = "answers.txt";
+const VIDEOS_FILENAME: &str = "videos.txt";
+const IMAGES_FILENAME: &str = "images.txt";
+const TEXTS_FILENAME: &str = "texts.txt";
+const ANSWERS_FILENAME: &str = "answers.txt";
 
 #[derive(RustEmbed)]
 #[folder = "script/"]
@@ -49,10 +49,10 @@ async fn blogs(args: Data<Args>) -> HttpResponse {
                     return None;
                 }
                 if ![
-                    VIDEOS_METADATA,
-                    IMAGES_METADATA,
-                    TEXTS_METADATA,
-                    ANSWERS_METADATA,
+                    VIDEOS_FILENAME,
+                    IMAGES_FILENAME,
+                    TEXTS_FILENAME,
+                    ANSWERS_FILENAME,
                 ]
                 .iter()
                 .any(|file| dir.path().join(file).exists())
@@ -82,17 +82,17 @@ async fn blog(args: Data<Args>, blog_name: web::Path<String>) -> HttpResponse {
             bail!("Blog directory not found")
         }
         let mut posts = Vec::new();
-        posts.extend(load_posts(&dir, IMAGES_METADATA, IMAGE_FIELDS, |map| {
-            Ok(PostType::Image(Image::from_text_map(map, &dir)?))
+        posts.extend(load_posts(&dir, IMAGES_FILENAME, IMAGE_FIELDS, |map| {
+            PostType::Image(Image::from_text_map(map, &dir))
         })?);
-        posts.extend(load_posts(&dir, VIDEOS_METADATA, VIDEO_FIELDS, |map| {
-            Ok(PostType::Video(Video::from_text_map(map, &dir)?))
+        posts.extend(load_posts(&dir, VIDEOS_FILENAME, VIDEO_FIELDS, |map| {
+            PostType::Video(Video::from_text_map(map, &dir))
         })?);
-        posts.extend(load_posts(&dir, TEXTS_METADATA, TEXT_FIELDS, |map| {
-            Ok(PostType::Text(Text::from_text_map(map)?))
+        posts.extend(load_posts(&dir, TEXTS_FILENAME, TEXT_FIELDS, |map| {
+            PostType::Text(Text::from_text_map(map))
         })?);
-        posts.extend(load_posts(&dir, ANSWERS_METADATA, ANSWER_FIELDS, |map| {
-            Ok(PostType::Answer(Answer::from_text_map(map)?))
+        posts.extend(load_posts(&dir, ANSWERS_FILENAME, ANSWER_FIELDS, |map| {
+            PostType::Answer(Answer::from_text_map(map))
         })?);
         posts.sort_by_key(|p| p.common.id);
         Ok(posts)
@@ -112,7 +112,7 @@ fn load_posts<M>(
     text_mapper: M,
 ) -> anyhow::Result<Vec<Post>>
 where
-    M: Fn(&mut TextMap) -> anyhow::Result<PostType>,
+    M: Fn(&mut TextMap) -> PostType,
 {
     let path = dir.join(filename);
     let mut output = Vec::new();
@@ -121,23 +121,11 @@ where
         let posts = split_into_posts(text);
         for p in posts {
             let mut map = read_text_into_map(p, fields);
-            let common = match PostCommon::from_text_map(&mut map) {
-                Ok(c) => c,
-                Err(e) => {
-                    log::warn!("Unable to read post due to {}", e);
-                    continue;
-                }
-            };
-            let special = match text_mapper(&mut map) {
-                Ok(s) => s,
-                Err(e) => {
-                    log::warn!("Unable to read post {} due to {}", common.id, e);
-                    continue;
-                }
-            };
+            let common = PostCommon::from_text_map(&mut map)?;
+            let specific = text_mapper(&mut map);
             output.push(Post {
                 common,
-                r#type: special,
+                r#type: specific,
             })
         }
     }

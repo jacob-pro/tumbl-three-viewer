@@ -11,7 +11,7 @@ pub struct Post {
 #[derive(Serialize, Debug)]
 pub struct PostCommon {
     pub id: u64,
-    pub date: String,
+    pub date: Option<String>,
     pub tags: Vec<String>,
 }
 
@@ -27,22 +27,22 @@ pub enum PostType {
 #[derive(Serialize, Debug)]
 pub struct Image {
     pub photo_urls: Vec<String>,
-    pub caption: String,
+    pub caption: Option<String>,
 }
 
 #[derive(Serialize, Debug)]
 pub struct Video {
-    pub url: String,
-    pub caption: String,
+    pub url: Option<String>,
+    pub caption: Option<String>,
 }
 
 #[derive(Serialize, Debug)]
 pub struct Text {
-    pub title: String,
-    pub body: String,
+    pub title: Option<String>,
+    pub body: Option<String>,
 }
 
 #[derive(Serialize, Debug)]
 pub struct Answer {
-    pub body: String,
+    pub body: Option<String>,
 }
