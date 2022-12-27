@@ -18,6 +18,9 @@
     background: white;
     padding: 10px;
     border-bottom: mediumslateblue;
+    border-width: 0;
+    border-bottom-width: 2px;
+    border-style: solid;
 }
 
 #posts {
