@@ -10,6 +10,20 @@
     padding: 20px;
 }
 
+#form {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 100%;
+    background: white;
+    padding: 10px;
+    border-bottom: mediumslateblue;
+}
+
+#posts {
+    margin-top: 50px;
+}
+
 img {
     width: auto;
     max-width: 100%;

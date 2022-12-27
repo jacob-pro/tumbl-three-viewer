@@ -1,0 +1,40 @@
+name: Rust Build
+
+on: [push, pull_request]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Cargo Test
+        run: cargo test --workspace -- --nocapture
+
+      - name: Cargo Clippy Check
+        run: cargo clippy --all-features --workspace -- -D warnings
+
+      - name: Cargo Format Check
+        run: cargo fmt -- --check
+
+      - name: Cargo Sort Check
+        run: cargo install cargo-sort --debug && cargo-sort --check --workspace
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: windows-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Compile Release
+        run: cargo build --release
+
+      - name: Github Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ./target/release/tumbl-three-viewer.exe
