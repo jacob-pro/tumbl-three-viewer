@@ -7,8 +7,3 @@ when the media URLs match the downloaded filename (older posts only!)
 
 See: https://github.com/TumblThreeApp/TumblThree/issues/229
 
-## Usage
-
-From your `Blogs` directory run the serve script.
-
-Open <http://localhost:7007> in your browser.
