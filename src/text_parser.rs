@@ -2,11 +2,12 @@ use crate::model::{Answer, Image, Post, PostCommon, PostType, Text, Video};
 use crate::utils::create_file_url;
 use crate::MetadataType;
 use anyhow::Context;
+use lol_html::{element, RewriteStrSettings};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use scraper::{Html, Selector};
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 type TextMap = HashMap<&'static str, String>;
 
@@ -86,7 +87,7 @@ const ANSWER_FIELDS: &[Field] = &[
 
 impl MetadataType {
     /// Parse a text format post
-    pub fn parse_text(self, text: String, blog_dir: &Path) -> anyhow::Result<Post> {
+    pub fn parse_text(self, text: String, blog_dir: &BlogDir) -> anyhow::Result<Post> {
         let text_fields = match self {
             MetadataType::Videos => VIDEO_FIELDS,
             MetadataType::Images => IMAGE_FIELDS,
@@ -96,9 +97,9 @@ impl MetadataType {
         let mut map = read_text_into_map(text, text_fields);
         let common = PostCommon::from_text_map(&mut map)?;
         let specific = match self {
-            MetadataType::Videos => PostType::Video(Video::from_text_map(&mut map, blog_dir)),
+            MetadataType::Videos => PostType::Video(Video::from_text_map(&mut map, &blog_dir.path)),
             MetadataType::Images => PostType::Image(Image::from_text_map(&mut map, blog_dir)),
-            MetadataType::Texts => PostType::Text(Text::from_text_map(&mut map)),
+            MetadataType::Texts => PostType::Text(Text::from_text_map(&mut map, blog_dir)),
             MetadataType::Answers => PostType::Answer(Answer::from_text_map(&mut map)),
         };
         Ok(Post {
@@ -172,7 +173,7 @@ impl PostCommon {
 }
 
 impl Image {
-    fn from_text_map(map: &mut TextMap, blog_dir: &Path) -> Self {
+    fn from_text_map(map: &mut TextMap, blog_dir: &BlogDir) -> Self {
         let mut urls = map
             .remove(FIELD_PHOTO_SET_URLS.field_name)
             .unwrap_or_default()
@@ -190,7 +191,7 @@ impl Image {
         Self {
             photo_urls: urls
                 .iter()
-                .map(|u| create_file_url(blog_dir, filename_from_url(u)))
+                .map(|u| rewrite_image_url(u, blog_dir).unwrap_or_default())
                 .collect(),
             caption: map.remove(FIELD_PHOTO_CAPTION.field_name),
         }
@@ -199,43 +200,61 @@ impl Image {
 
 impl Video {
     fn from_text_map(map: &mut TextMap, blog_dir: &Path) -> Self {
-        let url = Self::get_video_url(map, blog_dir)
-            .map_err(|e| {
-                log::warn!("Unable to get video url: {}", e);
-                e
-            })
-            .ok();
+        let url: anyhow::Result<_> = (|| {
+            let player = map
+                .remove(FIELD_VIDEO_PLAYER.field_name)
+                .context("Missing 'Video player' field")?;
+            let fragment = Html::parse_fragment(&player);
+            static SELECTOR: Lazy<Selector> = Lazy::new(|| Selector::parse("source").unwrap());
+            let video = fragment
+                .select(&SELECTOR)
+                .next()
+                .context("Missing 'source' tag")?;
+            let src = video.value().attr("src").context("missing src")?;
+
+            static REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"/(tumblr_[a-zA-Z\d]+)").unwrap());
+            let captures = REGEX.captures(src).context("Couldn't match video regex")?;
+            let filename = format!("{}.mp4", captures.get(1).unwrap().as_str());
+
+            Ok(create_file_url(blog_dir, filename.as_str()))
+        })();
+        if let Err(e) = &url {
+            log::warn!("Unable to get video url: {}", e);
+        }
         Video {
-            url,
+            url: url.ok(),
             caption: map.remove(FIELD_VIDEO_CAPTION.field_name),
         }
-    }
-
-    fn get_video_url(map: &mut TextMap, blog_dir: &Path) -> anyhow::Result<String> {
-        let player = map
-            .remove(FIELD_VIDEO_PLAYER.field_name)
-            .context("Missing video player")?;
-        let fragment = Html::parse_fragment(&player);
-        static SELECTOR: Lazy<Selector> = Lazy::new(|| Selector::parse("source").unwrap());
-        let video = fragment
-            .select(&SELECTOR)
-            .next()
-            .context("Missing source tag")?;
-        let src = video.value().attr("src").context("missing src")?;
-
-        static REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"/(tumblr_[a-zA-Z\d]+)").unwrap());
-        let captures = REGEX.captures(src).context("Couldn't match video regex")?;
-        let filename = format!("{}.mp4", captures.get(1).unwrap().as_str());
-
-        Ok(create_file_url(blog_dir, filename.as_str()))
     }
 }
 
 impl Text {
-    fn from_text_map(map: &mut TextMap) -> Self {
+    fn from_text_map(map: &mut TextMap, blog_dir: &BlogDir) -> Self {
+        let body = map.remove(FIELD_BODY.field_name).unwrap_or_default();
+
+        // A text post may have images within the body
+        // We must rewrite the body HTML to replace with local URLs
+        let element_content_handlers = vec![element!("img[src]", |el| {
+            let src = el.get_attribute("src").unwrap();
+            if let Ok(replacement) = rewrite_image_url(&src, blog_dir) {
+                el.set_attribute("src", &replacement)?;
+            } else {
+                log::warn!("Unable to find replacement file for {}", src);
+            }
+            Ok(())
+        })];
+        let body = lol_html::rewrite_str(
+            &body,
+            RewriteStrSettings {
+                element_content_handlers,
+                ..RewriteStrSettings::default()
+            },
+        )
+        .unwrap();
+
         Self {
             title: map.remove(FIELD_TITLE.field_name),
-            body: map.remove(FIELD_BODY.field_name),
+            body,
             media_urls: vec![],
         }
     }
@@ -249,10 +268,40 @@ impl Answer {
     }
 }
 
-fn filename_from_url(url: &str) -> &str {
-    if let Some(last_slash) = url.rfind('/') {
-        &url[last_slash + 1..]
-    } else {
-        url
+fn rewrite_image_url(url: &str, blog_dir: &BlogDir) -> anyhow::Result<String> {
+    let slash_idx = url.rfind('/').context("Unable to find / in url")? + 1;
+    let last_underscore_idx = url.rfind('_').context("Unable to find _ in url")? + 1;
+    let filename_segment = &url[slash_idx..last_underscore_idx];
+    let matched_file = blog_dir
+        .find_file_starting_with(filename_segment)
+        .context("Matching file doesn't exist")?;
+    Ok(create_file_url(&blog_dir.path, &matched_file))
+}
+
+pub struct BlogDir {
+    path: PathBuf,
+    files: Vec<String>,
+}
+
+impl BlogDir {
+    pub(crate) fn new(path: &Path) -> Self {
+        let list = std::fs::read_dir(path).expect("Unable to read blog directory");
+        let files = list
+            .into_iter()
+            .flatten()
+            .filter(|r| r.file_type().unwrap().is_file())
+            .map(|r| r.file_name().to_string_lossy().to_string())
+            .collect();
+        Self {
+            path: path.to_path_buf(),
+            files,
+        }
+    }
+
+    fn find_file_starting_with(&self, starting_with: &str) -> Option<String> {
+        self.files
+            .iter()
+            .find(|f| f.starts_with(starting_with))
+            .cloned()
     }
 }

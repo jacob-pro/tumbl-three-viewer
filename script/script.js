@@ -297,7 +297,7 @@ class Answer extends Post {
 
 
 function render_image(url) {
-    return `<img src="${url}" alt="">`;
+    return `<img src="${url}" alt="[image]">`;
 }
 
 function render_video(url) {

@@ -39,7 +39,7 @@ pub struct Video {
 #[derive(Serialize, Debug)]
 pub struct Text {
     pub title: Option<String>,
-    pub body: Option<String>,
+    pub body: String,
     pub media_urls: Vec<String>,
 }
 

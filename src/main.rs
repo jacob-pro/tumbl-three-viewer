@@ -129,9 +129,10 @@ fn load_posts(dir: &Path, metadata_type: MetadataType) -> anyhow::Result<Vec<Pos
                 .map(|json| metadata_type.parse_json(json, dir))
                 .collect::<Result<Vec<_>, _>>()
         } else {
+            let blog_dir = text_parser::BlogDir::new(dir);
             split_text_posts(text)
                 .into_iter()
-                .map(|text| metadata_type.parse_text(text, dir))
+                .map(|text| metadata_type.parse_text(text, &blog_dir))
                 .collect::<Result<Vec<_>, _>>()
         }
     } else {

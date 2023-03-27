@@ -103,7 +103,7 @@ impl JsonText {
                 Ok(())
             }),
         ];
-        let output = lol_html::rewrite_str(
+        let body = lol_html::rewrite_str(
             &self.body,
             RewriteStrSettings {
                 element_content_handlers,
@@ -123,7 +123,7 @@ impl JsonText {
             common,
             r#type: PostType::Text(Text {
                 title: None,
-                body: Some(output),
+                body,
                 media_urls: media,
             }),
         })
