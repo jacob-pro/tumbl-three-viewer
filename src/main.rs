@@ -168,6 +168,7 @@ struct Args {
 async fn main() -> io::Result<()> {
     let args: Args = Args::parse();
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
+    log::info!("Using base directory: {}", args.path.canonicalize().unwrap().display());
     let args2 = args.clone();
 
     let html = Index::get("index.html").unwrap();
