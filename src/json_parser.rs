@@ -2,7 +2,7 @@ use crate::model::{Answer, Image, Post, PostCommon, PostType, Text, Video};
 use crate::utils::create_file_url;
 use crate::MetadataType;
 use itertools::Itertools;
-use lol_html::{element, HtmlRewriter};
+use lol_html::{element, RewriteStrSettings};
 use serde::Deserialize;
 use std::path::Path;
 
@@ -89,29 +89,28 @@ impl JsonText {
         let common = self.common.to_model()?;
         // A text post may have images and videos within the body
         // We must rewrite the body HTML to remove the remote URLs
-        let mut output = vec![];
-        let mut rewriter = HtmlRewriter::new(
-            lol_html::Settings {
-                element_content_handlers: vec![
-                    element!("img", |el| {
-                        el.remove();
-                        Ok(())
-                    }),
-                    element!("figure", |el| {
-                        el.remove();
-                        Ok(())
-                    }),
-                    element!("video", |el| {
-                        el.remove();
-                        Ok(())
-                    }),
-                ],
-                ..lol_html::Settings::default()
+        let element_content_handlers = vec![
+            element!("img", |el| {
+                el.remove();
+                Ok(())
+            }),
+            element!("figure", |el| {
+                el.remove();
+                Ok(())
+            }),
+            element!("video", |el| {
+                el.remove();
+                Ok(())
+            }),
+        ];
+        let output = lol_html::rewrite_str(
+            &self.body,
+            RewriteStrSettings {
+                element_content_handlers,
+                ..RewriteStrSettings::default()
             },
-            |c: &[u8]| output.extend_from_slice(c),
-        );
-        rewriter.write(self.body.as_bytes())?;
-        rewriter.end()?;
+        )
+        .unwrap();
         let media = self
             .common
             .downloaded_media_files
@@ -124,7 +123,7 @@ impl JsonText {
             common,
             r#type: PostType::Text(Text {
                 title: None,
-                body: Some(String::from_utf8(output)?),
+                body: Some(output),
                 media_urls: media,
             }),
         })

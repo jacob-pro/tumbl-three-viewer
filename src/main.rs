@@ -14,7 +14,6 @@ use clap::Parser;
 use enum_iterator::Sequence;
 use env_logger::Env;
 use rust_embed::RustEmbed;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 use tokio::select;
@@ -173,13 +172,8 @@ async fn main() -> io::Result<()> {
     let html = Index::get("index.html").unwrap();
     let html = std::str::from_utf8(html.data.as_ref()).unwrap();
     let html = html.replace("${PORT}", &args.port.to_string());
-    let mut tempfile = tempfile::Builder::new()
-        .suffix(".html")
-        .tempfile()
-        .expect("Unable to create tempfile");
-    tempfile
-        .write_all(html.as_bytes())
-        .expect("Unable to write index");
+    let tempfile = std::env::temp_dir().join(format!("tumbl-three-viewer-{}.html", args.port));
+    fs::write(&tempfile, html).expect("Unable to create tempfile");
 
     let server = HttpServer::new(move || {
         let cors = Cors::permissive();
@@ -193,7 +187,7 @@ async fn main() -> io::Result<()> {
     .bind(("127.0.0.1", args.port))?
     .run();
 
-    open::that(tempfile.path()).expect("Unable to open html");
+    open::that(tempfile).expect("Unable to open html");
 
     select! {
         _ = server => {
