@@ -188,6 +188,7 @@ async fn main() -> io::Result<()> {
     .bind(("127.0.0.1", args.port))?
     .run();
 
+    log::info!("Opening: {}", tempfile.display());
     open::that(tempfile).expect("Unable to open html");
 
     select! {

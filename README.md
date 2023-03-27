@@ -38,5 +38,3 @@ Launch the application either within the `Blogs` directory or using the argument
 ```bash
 tumbl-three-viewer --path "./Blogs"
 ```
-
-The offline blog will be opened in your web browser.
