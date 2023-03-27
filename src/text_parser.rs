@@ -1,4 +1,6 @@
-use crate::model::{Answer, Image, PostCommon, Text, Video};
+use crate::model::{Answer, Image, Post, PostCommon, PostType, Text, Video};
+use crate::utils::create_file_url;
+use crate::MetadataType;
 use anyhow::Context;
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -6,9 +8,9 @@ use scraper::{Html, Selector};
 use std::collections::HashMap;
 use std::path::Path;
 
-pub type TextMap = HashMap<&'static str, String>;
+type TextMap = HashMap<&'static str, String>;
 
-pub struct Field {
+struct Field {
     field_name: &'static str,
     read_next_line: fn(&str) -> bool,
 }
@@ -49,7 +51,7 @@ const FIELD_VIDEO_PLAYER: Field = Field::new("Video player", read_until_tags);
 
 const FIELD_TITLE: Field = Field::new("Title", read_one);
 
-pub const IMAGE_FIELDS: &[Field] = &[
+const IMAGE_FIELDS: &[Field] = &[
     FIELD_POST_ID,
     FIELD_DATE,
     FIELD_PHOTO_URL,
@@ -58,7 +60,7 @@ pub const IMAGE_FIELDS: &[Field] = &[
     FIELD_TAGS,
 ];
 
-pub const VIDEO_FIELDS: &[Field] = &[
+const VIDEO_FIELDS: &[Field] = &[
     FIELD_POST_ID,
     FIELD_DATE,
     FIELD_VIDEO_CAPTION,
@@ -66,7 +68,7 @@ pub const VIDEO_FIELDS: &[Field] = &[
     FIELD_TAGS,
 ];
 
-pub const TEXT_FIELDS: &[Field] = &[
+const TEXT_FIELDS: &[Field] = &[
     FIELD_POST_ID,
     FIELD_DATE,
     FIELD_TITLE,
@@ -74,7 +76,7 @@ pub const TEXT_FIELDS: &[Field] = &[
     FIELD_TAGS,
 ];
 
-pub const ANSWER_FIELDS: &[Field] = &[
+const ANSWER_FIELDS: &[Field] = &[
     FIELD_POST_ID,
     FIELD_DATE,
     FIELD_REBLOG_NAME,
@@ -82,7 +84,31 @@ pub const ANSWER_FIELDS: &[Field] = &[
     FIELD_TAGS,
 ];
 
-pub fn read_text_into_map(input: String, fields: &[Field]) -> TextMap {
+impl MetadataType {
+    /// Parse a text format post
+    pub fn parse_text(self, text: String, blog_dir: &Path) -> anyhow::Result<Post> {
+        let text_fields = match self {
+            MetadataType::Videos => VIDEO_FIELDS,
+            MetadataType::Images => IMAGE_FIELDS,
+            MetadataType::Texts => TEXT_FIELDS,
+            MetadataType::Answers => ANSWER_FIELDS,
+        };
+        let mut map = read_text_into_map(text, text_fields);
+        let common = PostCommon::from_text_map(&mut map)?;
+        let specific = match self {
+            MetadataType::Videos => PostType::Video(Video::from_text_map(&mut map, blog_dir)),
+            MetadataType::Images => PostType::Image(Image::from_text_map(&mut map, blog_dir)),
+            MetadataType::Texts => PostType::Text(Text::from_text_map(&mut map)),
+            MetadataType::Answers => PostType::Answer(Answer::from_text_map(&mut map)),
+        };
+        Ok(Post {
+            common,
+            r#type: specific,
+        })
+    }
+}
+
+fn read_text_into_map(input: String, fields: &[Field]) -> TextMap {
     let mut lines = input.lines().peekable();
     let mut map = HashMap::new();
     for field in fields {
@@ -107,9 +133,10 @@ pub fn read_text_into_map(input: String, fields: &[Field]) -> TextMap {
     map
 }
 
-pub fn split_into_posts(input: String) -> Vec<String> {
+/// Split a text file into separate post strings
+pub fn split_text_posts(input: String) -> Vec<String> {
     static REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"Post id: \d+$").unwrap());
-    let lines = input.lines().peekable();
+    let lines = input.lines();
     let mut output = Vec::new();
     let mut current = Vec::new();
     for line in lines {
@@ -126,7 +153,7 @@ pub fn split_into_posts(input: String) -> Vec<String> {
 }
 
 impl PostCommon {
-    pub fn from_text_map(map: &mut TextMap) -> anyhow::Result<Self> {
+    fn from_text_map(map: &mut TextMap) -> anyhow::Result<Self> {
         Ok(PostCommon {
             id: map
                 .remove(FIELD_POST_ID.field_name)
@@ -145,7 +172,7 @@ impl PostCommon {
 }
 
 impl Image {
-    pub fn from_text_map(map: &mut TextMap, blog_dir: &Path) -> Self {
+    fn from_text_map(map: &mut TextMap, blog_dir: &Path) -> Self {
         let mut urls = map
             .remove(FIELD_PHOTO_SET_URLS.field_name)
             .unwrap_or_default()
@@ -163,7 +190,7 @@ impl Image {
         Self {
             photo_urls: urls
                 .iter()
-                .map(|u| prepend_blog_directory(url_to_file_name(u), blog_dir))
+                .map(|u| create_file_url(blog_dir, filename_from_url(u)))
                 .collect(),
             caption: map.remove(FIELD_PHOTO_CAPTION.field_name),
         }
@@ -171,7 +198,7 @@ impl Image {
 }
 
 impl Video {
-    pub fn from_text_map(map: &mut TextMap, blog_dir: &Path) -> Self {
+    fn from_text_map(map: &mut TextMap, blog_dir: &Path) -> Self {
         let url = Self::get_video_url(map, blog_dir)
             .map_err(|e| {
                 log::warn!("Unable to get video url: {}", e);
@@ -200,38 +227,32 @@ impl Video {
         let captures = REGEX.captures(src).context("Couldn't match video regex")?;
         let filename = format!("{}.mp4", captures.get(1).unwrap().as_str());
 
-        Ok(prepend_blog_directory(filename.as_str(), blog_dir))
+        Ok(create_file_url(blog_dir, filename.as_str()))
     }
 }
 
 impl Text {
-    pub fn from_text_map(map: &mut TextMap) -> Self {
+    fn from_text_map(map: &mut TextMap) -> Self {
         Self {
             title: map.remove(FIELD_TITLE.field_name),
             body: map.remove(FIELD_BODY.field_name),
+            media_urls: vec![],
         }
     }
 }
 
 impl Answer {
-    pub fn from_text_map(map: &mut TextMap) -> Self {
+    fn from_text_map(map: &mut TextMap) -> Self {
         Self {
             body: map.remove(FIELD_BODY.field_name),
         }
     }
 }
 
-fn url_to_file_name(url: &str) -> &str {
+fn filename_from_url(url: &str) -> &str {
     if let Some(last_slash) = url.rfind('/') {
         &url[last_slash + 1..]
     } else {
         url
     }
-}
-
-fn prepend_blog_directory(filename: &str, blog_dir: &Path) -> String {
-    let path = blog_dir.join(filename).to_string_lossy().to_string();
-    let path = path.replace(r"\\?\UNC\", "//");
-    let path = path.replace(r"\\?\", "");
-    format!("file:///{}", path)
 }

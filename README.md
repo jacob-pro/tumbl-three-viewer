@@ -1,9 +1,4 @@
 # TumblThree Archive Viewer
 
-Warning this is very experimental; it may not work in a lot of cases.
-
-It only works when the metadata has been downloaded in the older text format, and only works
-when the media URLs match the downloaded filename (older posts only!)
-
-See: https://github.com/TumblThreeApp/TumblThree/issues/229
-
+TumblrThree [version > 2.10.0](https://github.com/TumblThreeApp/TumblThree/issues/414) using JSON metadata is the 
+only fully supported format. Support for older versions and text metadata is experimental and unreliable.

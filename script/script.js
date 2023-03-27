@@ -80,7 +80,7 @@ $( document ).ready(function() {
         const type = TYPE[0].value;
         const sort = SORT[0].value;
         FILTERED_POSTS = ALL_POSTS.filter((p) => {
-            return type === "All" || type === p.constructor.name
+            return type === "All" || p.types().includes(type)
         })
         FILTERED_POSTS = FILTERED_POSTS.filter((p) => {
             return search.length === 0 || p.matches_search(search)
@@ -139,13 +139,13 @@ class Post {
 
     static deserialize(post) {
         const type = post["type"]
-        if (type === "Image") {
+        if (type === PostType.Image) {
             return Image.deserialize(post);
-        } else if (type === "Video") {
+        } else if (type === PostType.Video) {
             return Video.deserialize(post);
-        } else if (type === "Text") {
+        } else if (type === PostType.Text) {
             return Text.deserialize(post);
-        } else if (type === "Answer") {
+        } else if (type === PostType.Answer) {
             return Answer.deserialize(post);
         } else {
             throw new Error("Unknown type " + type);
@@ -166,7 +166,6 @@ class Post {
     matches_search(search) {
         return this.tags.includes(search)
     }
-
 }
 
 class Image extends Post {
@@ -185,13 +184,17 @@ class Image extends Post {
 
     render() {
         const header = super.render_header();
-        const images = this.photo_urls.map((u) => `<img src="${u}" alt="">`).join("\n")
+        const images = this.photo_urls.map(render_image).join("\n")
         const footer = super.render_footer();
         return [header, this.caption, images, footer].join("\n")
     }
 
     matches_search(search) {
-        return super.matches_search(search) || this.caption.includes(search)
+        return super.matches_search(search) || this.caption?.includes(search)
+    }
+
+    types() {
+        return [PostType.Image]
     }
 }
 
@@ -213,40 +216,56 @@ class Video extends Post {
         const header = super.render_header();
         const footer = super.render_footer();
         const caption = `<div>${this.caption}</div>`
-        const video = `<video controls><source src="${this.url}"></video>`
+        const video = render_video(this.url);
         return [header, caption, video, footer].join("\n")
     }
 
     matches_search(search) {
-        return super.matches_search(search) || this.caption.includes(search)
+        return super.matches_search(search) || this.caption?.includes(search)
+    }
+
+    types() {
+        return [PostType.Video]
     }
 }
 
 class Text extends Post {
     title;
     body;
+    media_urls;
 
-    constructor(id, date, tags, title, body) {
+    constructor(id, date, tags, title, body, media_urls) {
         super(id, date, tags);
         this.title = title
         this.body = body
+        this.media_urls = media_urls
     }
 
     static deserialize(post) {
-        return new Text(post["id"], post["date"], post["tags"], post["title"], post["body"])
+        return new Text(post["id"], post["date"], post["tags"], post["title"], post["body"], post["media_urls"])
     }
 
     render() {
         const header = super.render_header();
         const footer = super.render_footer();
-        const title = `<h4>${this.title}</h4>`
-        return [header, title, this.body, footer].join("\n")
+        const title = this.title ? `<h4>${this.title}</h4>` : "";
+        const media = this.media_urls.map(render_text_media).join("\n")
+        return [header, title, this.body, media, footer].join("\n")
     }
 
     matches_search(search) {
-        return super.matches_search(search) || this.title.includes(search) || this.body.includes(search)
+        return super.matches_search(search) || this.title?.includes(search) || this.body.includes(search)
     }
 
+    types() {
+        const out = [PostType.Text];
+        if (this.media_urls.some(url => get_url_type(url) === TextMediaType.Video)) {
+            out.push(PostType.Video)
+        } else if (this.media_urls.some(url => get_url_type(url) === TextMediaType.Image)) {
+            out.push(PostType.Image)
+        }
+        return out;
+    }
 }
 
 class Answer extends Post {
@@ -271,4 +290,45 @@ class Answer extends Post {
         return super.matches_search(search) || this.body.includes(search)
     }
 
+    types() {
+        return [PostType.Answer]
+    }
 }
+
+
+function render_image(url) {
+    return `<img src="${url}" alt="">`;
+}
+
+function render_video(url) {
+    return `<video controls><source src="${url}"></video>`;
+}
+
+function render_text_media(url) {
+    const type = get_url_type(url);
+    if (type === TextMediaType.Video) {
+        return render_video(url);
+    } else if (type === TextMediaType.Image) {
+        return render_image(url);
+    }
+}
+
+function get_url_type(url) {
+    if (url.endsWith(".mp4")) {
+        return TextMediaType.Video
+    } else {
+        return TextMediaType.Image
+    }
+}
+
+const TextMediaType = {
+    Video: 'Video',
+    Image: 'Image',
+};
+
+const PostType = {
+    Video: 'Video',
+    Image: 'Image',
+    Text: 'Text',
+    Answer: 'Answer',
+};

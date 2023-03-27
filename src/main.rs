@@ -1,17 +1,17 @@
+mod json_parser;
 mod model;
 mod text_parser;
+mod utils;
 
-use crate::model::{Answer, Image, Post, PostCommon, PostType, Text, Video};
-use crate::text_parser::{
-    read_text_into_map, split_into_posts, Field, TextMap, ANSWER_FIELDS, IMAGE_FIELDS, TEXT_FIELDS,
-    VIDEO_FIELDS,
-};
+use crate::model::Post;
+use crate::text_parser::split_text_posts;
 use actix_cors::Cors;
 use actix_web::http::StatusCode;
 use actix_web::web::Data;
 use actix_web::{web, App, HttpResponse, HttpServer};
 use anyhow::bail;
 use clap::Parser;
+use enum_iterator::Sequence;
 use env_logger::Env;
 use rust_embed::RustEmbed;
 use std::io::Write;
@@ -24,6 +24,25 @@ const IMAGES_FILENAME: &str = "images.txt";
 const TEXTS_FILENAME: &str = "texts.txt";
 const ANSWERS_FILENAME: &str = "answers.txt";
 
+#[derive(Copy, Clone, Sequence)]
+enum MetadataType {
+    Videos,
+    Images,
+    Texts,
+    Answers,
+}
+
+impl MetadataType {
+    pub fn file_name(self) -> &'static str {
+        match self {
+            MetadataType::Videos => "videos.txt",
+            MetadataType::Images => "images.txt",
+            MetadataType::Texts => "texts.txt",
+            MetadataType::Answers => "answers.txt",
+        }
+    }
+}
+
 #[derive(RustEmbed)]
 #[folder = "script/"]
 struct Viewer;
@@ -32,6 +51,8 @@ struct Viewer;
 #[folder = "index/"]
 struct Index;
 
+/// Route handler for /blogs - returns list of all directories that contain one or more
+/// metadata files
 async fn blogs(args: Data<Args>) -> HttpResponse {
     let blogs = web::block(move || -> Result<_, String> {
         Ok(fs::read_dir(&args.path)
@@ -71,6 +92,8 @@ async fn blogs(args: Data<Args>) -> HttpResponse {
     }
 }
 
+/// Route handler for /blog/{name}
+/// Return a list of posts
 async fn blog(args: Data<Args>, blog_name: web::Path<String>) -> HttpResponse {
     let res = web::block(move || -> anyhow::Result<_> {
         let dir = args
@@ -82,18 +105,9 @@ async fn blog(args: Data<Args>, blog_name: web::Path<String>) -> HttpResponse {
             bail!("Blog directory not found")
         }
         let mut posts = Vec::new();
-        posts.extend(load_posts(&dir, IMAGES_FILENAME, IMAGE_FIELDS, |map| {
-            PostType::Image(Image::from_text_map(map, &dir))
-        })?);
-        posts.extend(load_posts(&dir, VIDEOS_FILENAME, VIDEO_FIELDS, |map| {
-            PostType::Video(Video::from_text_map(map, &dir))
-        })?);
-        posts.extend(load_posts(&dir, TEXTS_FILENAME, TEXT_FIELDS, |map| {
-            PostType::Text(Text::from_text_map(map))
-        })?);
-        posts.extend(load_posts(&dir, ANSWERS_FILENAME, ANSWER_FIELDS, |map| {
-            PostType::Answer(Answer::from_text_map(map))
-        })?);
+        for file in enum_iterator::all::<MetadataType>() {
+            posts.extend(load_posts(&dir, file)?);
+        }
         posts.sort_by_key(|p| p.common.id);
         Ok(posts)
     })
@@ -105,31 +119,25 @@ async fn blog(args: Data<Args>, blog_name: web::Path<String>) -> HttpResponse {
     }
 }
 
-fn load_posts<M>(
-    dir: &Path,
-    filename: &str,
-    fields: &[Field],
-    text_mapper: M,
-) -> anyhow::Result<Vec<Post>>
-where
-    M: Fn(&mut TextMap) -> PostType,
-{
-    let path = dir.join(filename);
-    let mut output = Vec::new();
+/// Loads all posts from a metadata file (if it exists)
+fn load_posts(dir: &Path, metadata_type: MetadataType) -> anyhow::Result<Vec<Post>> {
+    let path = dir.join(metadata_type.file_name());
     if path.is_file() {
         let text = fs::read_to_string(path)?;
-        let posts = split_into_posts(text);
-        for p in posts {
-            let mut map = read_text_into_map(p, fields);
-            let common = PostCommon::from_text_map(&mut map)?;
-            let specific = text_mapper(&mut map);
-            output.push(Post {
-                common,
-                r#type: specific,
-            })
+        if text.starts_with('[') {
+            serde_json::from_str::<Vec<serde_json::Value>>(&text)?
+                .into_iter()
+                .map(|json| metadata_type.parse_json(json, dir))
+                .collect::<Result<Vec<_>, _>>()
+        } else {
+            split_text_posts(text)
+                .into_iter()
+                .map(|text| metadata_type.parse_text(text, dir))
+                .collect::<Result<Vec<_>, _>>()
         }
+    } else {
+        Ok(vec![])
     }
-    Ok(output)
 }
 
 async fn viewer(path: web::Path<String>) -> HttpResponse {
