@@ -1,5 +1,5 @@
 use crate::model::{Answer, Image, Post, PostCommon, PostType, Text, Video};
-use crate::utils::create_file_url;
+use crate::utils::{create_file_url, BlogDir};
 use crate::MetadataType;
 use anyhow::Context;
 use lol_html::{element, RewriteStrSettings};
@@ -7,7 +7,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use scraper::{Html, Selector};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 type TextMap = HashMap<&'static str, String>;
 
@@ -276,32 +276,4 @@ fn rewrite_image_url(url: &str, blog_dir: &BlogDir) -> anyhow::Result<String> {
         .find_file_starting_with(filename_segment)
         .context("Matching file doesn't exist")?;
     Ok(create_file_url(&blog_dir.path, &matched_file))
-}
-
-pub struct BlogDir {
-    path: PathBuf,
-    files: Vec<String>,
-}
-
-impl BlogDir {
-    pub(crate) fn new(path: &Path) -> Self {
-        let list = std::fs::read_dir(path).expect("Unable to read blog directory");
-        let files = list
-            .into_iter()
-            .flatten()
-            .filter(|r| r.file_type().unwrap().is_file())
-            .map(|r| r.file_name().to_string_lossy().to_string())
-            .collect();
-        Self {
-            path: path.to_path_buf(),
-            files,
-        }
-    }
-
-    fn find_file_starting_with(&self, starting_with: &str) -> Option<String> {
-        self.files
-            .iter()
-            .find(|f| f.starts_with(starting_with))
-            .cloned()
-    }
 }

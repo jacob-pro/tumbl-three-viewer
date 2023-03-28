@@ -1,10 +1,9 @@
 use crate::model::{Answer, Image, Post, PostCommon, PostType, Text, Video};
-use crate::utils::create_file_url;
+use crate::utils::{create_file_url, BlogDir};
 use crate::MetadataType;
 use itertools::Itertools;
 use lol_html::{element, RewriteStrSettings};
 use serde::Deserialize;
-use std::path::Path;
 
 #[derive(Deserialize)]
 struct JsonCommon {
@@ -34,7 +33,7 @@ pub struct JsonVideo {
 }
 
 impl JsonVideo {
-    fn into_post(self, blog_dir: &Path) -> anyhow::Result<Post> {
+    fn into_post(self, blog_dir: &BlogDir) -> anyhow::Result<Post> {
         if self.common.downloaded_media_files.len() != 1 {
             log::warn!("unexpected media length for post {}", self.common.id);
         }
@@ -45,7 +44,7 @@ impl JsonVideo {
                     .common
                     .downloaded_media_files
                     .first()
-                    .map(|filename| create_file_url(blog_dir, filename)),
+                    .map(|filename| patched_create_file_url(blog_dir, filename)),
                 caption: self.caption,
             }),
         })
@@ -56,11 +55,12 @@ impl JsonVideo {
 struct JsonImage {
     #[serde(flatten)]
     common: JsonCommon,
+    #[serde(alias = "photo-caption")]
     caption: Option<String>,
 }
 
 impl JsonImage {
-    fn into_post(self, blog_dir: &Path) -> anyhow::Result<Post> {
+    fn into_post(self, blog_dir: &BlogDir) -> anyhow::Result<Post> {
         Ok(Post {
             common: self.common.to_model()?,
             r#type: PostType::Image(Image {
@@ -68,7 +68,7 @@ impl JsonImage {
                     .common
                     .downloaded_media_files
                     .iter()
-                    .map(|filename| create_file_url(blog_dir, filename))
+                    .map(|filename| patched_create_file_url(blog_dir, filename))
                     .collect(),
                 caption: self.caption,
             }),
@@ -81,11 +81,14 @@ struct JsonText {
     #[serde(flatten)]
     common: JsonCommon,
     #[serde(default)]
+    #[serde(alias = "regular-body")]
     body: String,
+    #[serde(alias = "regular-title")]
+    title: Option<String>,
 }
 
 impl JsonText {
-    fn into_post(self, blog_dir: &Path) -> anyhow::Result<Post> {
+    fn into_post(self, blog_dir: &BlogDir) -> anyhow::Result<Post> {
         let common = self.common.to_model()?;
         // A text post may have images and videos within the body
         // We must rewrite the body HTML to remove the remote URLs
@@ -116,13 +119,13 @@ impl JsonText {
             .downloaded_media_files
             .into_iter()
             .unique()
-            .map(|filename| create_file_url(blog_dir, &filename))
+            .map(|filename| patched_create_file_url(blog_dir, &filename))
             .collect();
 
         Ok(Post {
             common,
             r#type: PostType::Text(Text {
-                title: None,
+                title: self.title,
                 body,
                 media_urls: media,
             }),
@@ -150,7 +153,7 @@ impl JsonAnswer {
 
 impl MetadataType {
     /// Parse a JSON format post
-    pub fn parse_json(self, json: serde_json::Value, blog_dir: &Path) -> anyhow::Result<Post> {
+    pub fn parse_json(self, json: serde_json::Value, blog_dir: &BlogDir) -> anyhow::Result<Post> {
         match self {
             MetadataType::Videos => serde_json::from_value::<JsonVideo>(json)?.into_post(blog_dir),
             MetadataType::Images => serde_json::from_value::<JsonImage>(json)?.into_post(blog_dir),
@@ -158,4 +161,18 @@ impl MetadataType {
             MetadataType::Answers => serde_json::from_value::<JsonAnswer>(json)?.into_post(),
         }
     }
+}
+
+// Work around for https://github.com/TumblThreeApp/TumblThree/issues/439
+fn patched_create_file_url(blog_dir: &BlogDir, filename: &str) -> String {
+    if let Some(dot_index) = filename.rfind('.') {
+        let prefix = &filename[0..dot_index + 1];
+        if let Some(matched) = blog_dir.find_file_starting_with(prefix) {
+            if matched != filename {
+                log::warn!("rewriting {} to {}", filename, matched);
+                return create_file_url(&blog_dir.path, &matched);
+            }
+        }
+    }
+    create_file_url(&blog_dir.path, filename)
 }

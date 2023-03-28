@@ -123,13 +123,13 @@ fn load_posts(dir: &Path, metadata_type: MetadataType) -> anyhow::Result<Vec<Pos
     let path = dir.join(metadata_type.file_name());
     if path.is_file() {
         let text = fs::read_to_string(path)?;
+        let blog_dir = utils::BlogDir::new(dir);
         if text.starts_with('[') {
             serde_json::from_str::<Vec<serde_json::Value>>(&text)?
                 .into_iter()
-                .map(|json| metadata_type.parse_json(json, dir))
+                .map(|json| metadata_type.parse_json(json, &blog_dir))
                 .collect::<Result<Vec<_>, _>>()
         } else {
-            let blog_dir = text_parser::BlogDir::new(dir);
             split_text_posts(text)
                 .into_iter()
                 .map(|text| metadata_type.parse_text(text, &blog_dir))
@@ -168,7 +168,10 @@ struct Args {
 async fn main() -> io::Result<()> {
     let args: Args = Args::parse();
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
-    log::info!("Using base directory: {}", args.path.canonicalize().unwrap().display());
+    log::info!(
+        "Using base directory: {}",
+        args.path.canonicalize().unwrap().display()
+    );
     let args2 = args.clone();
 
     let html = Index::get("index.html").unwrap();
