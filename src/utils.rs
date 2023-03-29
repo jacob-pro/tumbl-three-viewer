@@ -29,9 +29,18 @@ impl BlogDir {
     }
 
     pub fn find_file_starting_with(&self, starting_with: &str) -> Option<String> {
-        self.files
+        let matches = self
+            .files
             .iter()
-            .find(|f| f.starts_with(starting_with))
-            .cloned()
+            .filter(|f| f.starts_with(starting_with))
+            .collect::<Vec<_>>();
+        if matches.len() > 1 {
+            log::warn!(
+                "Found multiple matches for file search {}: {:?}",
+                starting_with,
+                matches
+            );
+        }
+        matches.first().map(ToString::to_string)
     }
 }

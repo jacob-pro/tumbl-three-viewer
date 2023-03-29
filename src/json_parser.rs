@@ -1,4 +1,4 @@
-use crate::model::{Answer, Image, Post, PostCommon, PostType, Text, Video};
+use crate::model::{Answer, Image, Post, PostCommon, PostType, Text, Video, UNKNOWN_FILE};
 use crate::utils::{create_file_url, BlogDir};
 use crate::MetadataType;
 use itertools::Itertools;
@@ -29,13 +29,16 @@ impl JsonCommon {
 pub struct JsonVideo {
     #[serde(flatten)]
     common: JsonCommon,
-    caption: Option<String>,
+    caption: String,
 }
 
 impl JsonVideo {
     fn into_post(self, blog_dir: &BlogDir) -> anyhow::Result<Post> {
         if self.common.downloaded_media_files.len() != 1 {
-            log::warn!("unexpected media length for post {}", self.common.id);
+            log::warn!(
+                "Unexpected downloaded_media_files for video {}",
+                self.common.id
+            );
         }
         Ok(Post {
             common: self.common.to_model()?,
@@ -44,8 +47,8 @@ impl JsonVideo {
                     .common
                     .downloaded_media_files
                     .first()
-                    .map(|filename| patched_create_file_url(blog_dir, filename)),
-                caption: self.caption,
+                    .map(|filename| url_for_media_file(blog_dir, filename)),
+                caption: Some(self.caption),
             }),
         })
     }
@@ -56,11 +59,17 @@ struct JsonImage {
     #[serde(flatten)]
     common: JsonCommon,
     #[serde(alias = "photo-caption")]
-    caption: Option<String>,
+    caption: String,
 }
 
 impl JsonImage {
     fn into_post(self, blog_dir: &BlogDir) -> anyhow::Result<Post> {
+        if self.common.downloaded_media_files.is_empty() {
+            log::warn!(
+                "Missing downloaded_media_files for image {}",
+                self.common.id
+            );
+        }
         Ok(Post {
             common: self.common.to_model()?,
             r#type: PostType::Image(Image {
@@ -68,9 +77,9 @@ impl JsonImage {
                     .common
                     .downloaded_media_files
                     .iter()
-                    .map(|filename| patched_create_file_url(blog_dir, filename))
+                    .map(|filename| url_for_media_file(blog_dir, filename))
                     .collect(),
-                caption: self.caption,
+                caption: Some(self.caption),
             }),
         })
     }
@@ -119,7 +128,7 @@ impl JsonText {
             .downloaded_media_files
             .into_iter()
             .unique()
-            .map(|filename| patched_create_file_url(blog_dir, &filename))
+            .map(|filename| url_for_media_file(blog_dir, &filename))
             .collect();
 
         Ok(Post {
@@ -163,16 +172,21 @@ impl MetadataType {
     }
 }
 
-// Work around for https://github.com/TumblThreeApp/TumblThree/issues/439
-fn patched_create_file_url(blog_dir: &BlogDir, filename: &str) -> String {
-    if let Some(dot_index) = filename.rfind('.') {
-        let prefix = &filename[0..dot_index + 1];
-        if let Some(matched) = blog_dir.find_file_starting_with(prefix) {
-            if matched != filename {
-                log::warn!("rewriting {} to {}", filename, matched);
-                return create_file_url(&blog_dir.path, &matched);
-            }
-        }
+/// Resolve a file URL for an item in the `downloaded_media_files` array
+fn url_for_media_file(blog_dir: &BlogDir, downloaded_media_file: &str) -> String {
+    let mut search_prefix = downloaded_media_file;
+    // Trim the extension to workaround https://github.com/TumblThreeApp/TumblThree/issues/439
+    if let Some(dot_index) = downloaded_media_file.rfind('.') {
+        search_prefix = &downloaded_media_file[0..dot_index + 1];
     }
-    create_file_url(&blog_dir.path, filename)
+
+    if let Some(matched) = blog_dir.find_file_starting_with(search_prefix) {
+        if matched != downloaded_media_file {
+            log::warn!("Rewriting file {} to {}", downloaded_media_file, matched);
+        }
+        create_file_url(&blog_dir.path, &matched)
+    } else {
+        log::warn!("Unable to find file matching {}", downloaded_media_file);
+        String::from(UNKNOWN_FILE)
+    }
 }

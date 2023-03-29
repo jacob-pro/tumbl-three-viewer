@@ -48,7 +48,7 @@ $( document ).ready(function() {
             update_page_choice();
             render_posts();
         }).catch((e) => {
-            alert(e);
+            alert(e.responseText);
         })
     });
 

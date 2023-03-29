@@ -1,5 +1,7 @@
 use serde::Serialize;
 
+pub const UNKNOWN_FILE: &str = "unknown";
+
 #[derive(Serialize, Debug)]
 pub struct Post {
     #[serde(flatten)]

@@ -9,13 +9,13 @@ use actix_cors::Cors;
 use actix_web::http::StatusCode;
 use actix_web::web::Data;
 use actix_web::{web, App, HttpResponse, HttpServer};
-use anyhow::bail;
 use clap::Parser;
 use enum_iterator::Sequence;
 use env_logger::Env;
 use rust_embed::RustEmbed;
 use std::path::{Path, PathBuf};
 use std::{fs, io};
+use thiserror::Error;
 use tokio::select;
 
 const VIDEOS_FILENAME: &str = "videos.txt";
@@ -91,17 +91,29 @@ async fn blogs(args: Data<Args>) -> HttpResponse {
     }
 }
 
+#[derive(Debug, Error)]
+enum BlogError {
+    #[error("Blog directory not found")]
+    NotFound,
+    #[error("Internal error loading blog metadata: {0}")]
+    Internal(
+        #[source]
+        #[from]
+        anyhow::Error,
+    ),
+}
+
 /// Route handler for /blog/{name}
 /// Return a list of posts
 async fn blog(args: Data<Args>, blog_name: web::Path<String>) -> HttpResponse {
-    let res = web::block(move || -> anyhow::Result<_> {
+    let res = web::block(move || -> Result<_, BlogError> {
         let dir = args
             .path
             .canonicalize()
             .expect("unable to canonicalize")
             .join(blog_name.into_inner());
         if !dir.is_dir() {
-            bail!("Blog directory not found")
+            return Err(BlogError::NotFound);
         }
         let mut posts = Vec::new();
         for file in enum_iterator::all::<MetadataType>() {
@@ -113,7 +125,13 @@ async fn blog(args: Data<Args>, blog_name: web::Path<String>) -> HttpResponse {
     .await
     .unwrap();
     match res {
-        Err(e) => HttpResponse::BadRequest().body(format!("{}", e)),
+        Err(e) => {
+            log::error!("{}", e);
+            match e {
+                BlogError::NotFound => HttpResponse::NotFound().body(format!("{}", e)),
+                BlogError::Internal(_) => HttpResponse::BadRequest().body(format!("{}", e)),
+            }
+        }
         Ok(res) => HttpResponse::Ok().json(res),
     }
 }

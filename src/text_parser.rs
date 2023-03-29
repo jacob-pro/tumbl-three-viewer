@@ -1,7 +1,7 @@
-use crate::model::{Answer, Image, Post, PostCommon, PostType, Text, Video};
+use crate::model::{Answer, Image, Post, PostCommon, PostType, Text, Video, UNKNOWN_FILE};
 use crate::utils::{create_file_url, BlogDir};
 use crate::MetadataType;
-use anyhow::Context;
+use anyhow::{bail, Context};
 use lol_html::{element, RewriteStrSettings};
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -97,7 +97,9 @@ impl MetadataType {
         let mut map = read_text_into_map(text, text_fields);
         let common = PostCommon::from_text_map(&mut map)?;
         let specific = match self {
-            MetadataType::Videos => PostType::Video(Video::from_text_map(&mut map, &blog_dir.path)),
+            MetadataType::Videos => {
+                PostType::Video(Video::from_text_map(&mut map, &blog_dir.path, common.id))
+            }
             MetadataType::Images => PostType::Image(Image::from_text_map(&mut map, blog_dir)),
             MetadataType::Texts => PostType::Text(Text::from_text_map(&mut map, blog_dir)),
             MetadataType::Answers => PostType::Answer(Answer::from_text_map(&mut map)),
@@ -191,7 +193,7 @@ impl Image {
         Self {
             photo_urls: urls
                 .iter()
-                .map(|u| rewrite_image_url(u, blog_dir).unwrap_or_default())
+                .map(|u| rewrite_image_url(u, blog_dir))
                 .collect(),
             caption: map.remove(FIELD_PHOTO_CAPTION.field_name),
         }
@@ -199,7 +201,7 @@ impl Image {
 }
 
 impl Video {
-    fn from_text_map(map: &mut TextMap, blog_dir: &Path) -> Self {
+    fn from_text_map(map: &mut TextMap, blog_dir: &Path, post_id: u64) -> Self {
         let url: anyhow::Result<_> = (|| {
             let player = map
                 .remove(FIELD_VIDEO_PLAYER.field_name)
@@ -210,16 +212,21 @@ impl Video {
                 .select(&SELECTOR)
                 .next()
                 .context("Missing 'source' tag")?;
-            let src = video.value().attr("src").context("missing src")?;
+            let src = video
+                .value()
+                .attr("src")
+                .context("Source element missing 'src' attribute")?;
 
             static REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"/(tumblr_[a-zA-Z\d]+)").unwrap());
-            let captures = REGEX.captures(src).context("Couldn't match video regex")?;
+            let captures = REGEX
+                .captures(src)
+                .context("Couldn't find a supported video URL")?;
             let filename = format!("{}.mp4", captures.get(1).unwrap().as_str());
 
             Ok(create_file_url(blog_dir, filename.as_str()))
         })();
         if let Err(e) = &url {
-            log::warn!("Unable to get video url: {}", e);
+            log::warn!("Unable to find a video URL for post {}: {}", post_id, e);
         }
         Video {
             url: url.ok(),
@@ -236,11 +243,8 @@ impl Text {
         // We must rewrite the body HTML to replace with local URLs
         let element_content_handlers = vec![element!("img[src]", |el| {
             let src = el.get_attribute("src").unwrap();
-            if let Ok(replacement) = rewrite_image_url(&src, blog_dir) {
-                el.set_attribute("src", &replacement)?;
-            } else {
-                log::warn!("Unable to find replacement file for {}", src);
-            }
+            let replacement = rewrite_image_url(&src, blog_dir);
+            el.set_attribute("src", &replacement)?;
             Ok(())
         })];
         let body = lol_html::rewrite_str(
@@ -268,12 +272,37 @@ impl Answer {
     }
 }
 
-fn rewrite_image_url(url: &str, blog_dir: &BlogDir) -> anyhow::Result<String> {
-    let slash_idx = url.rfind('/').context("Unable to find / in url")? + 1;
-    let last_underscore_idx = url.rfind('_').context("Unable to find _ in url")? + 1;
-    let filename_segment = &url[slash_idx..last_underscore_idx];
-    let matched_file = blog_dir
-        .find_file_starting_with(filename_segment)
-        .context("Matching file doesn't exist")?;
-    Ok(create_file_url(&blog_dir.path, &matched_file))
+/// Rewrite an Tumblr image URL to a file on disk
+/// This relies on the assumption that TumblThree wasn't configured to rewrite the file names
+/// Used for metadata when the `downloaded_media_files` feature wasn't available
+/// https://github.com/TumblThreeApp/TumblThree/commit/62373027d7b5d13d548be90104a5f265a719ed64
+fn rewrite_image_url(url: &str, blog_dir: &BlogDir) -> String {
+    let result = (|| -> anyhow::Result<_> {
+        let slash_idx = url.rfind('/').context("Unable to find '/' in url")? + 1;
+        let url_filename = &url[slash_idx..];
+        let mut search_prefix = url_filename;
+
+        // Work around for some images where the URL size suffix does not match
+        // the one on disk, e.g. _540.jpg vs _1280.jpg
+        if search_prefix.starts_with("tumblr_") {
+            if let Some(last_underscore_idx) = search_prefix.rfind('_') {
+                search_prefix = &search_prefix[..last_underscore_idx + 1];
+            }
+        }
+
+        if let Some(matched) = blog_dir.find_file_starting_with(search_prefix) {
+            if matched != url_filename {
+                log::warn!("Rewriting file {} to {}", url_filename, matched);
+            }
+            return Ok(create_file_url(&blog_dir.path, &matched));
+        }
+        bail!("No file on disk starting with: {}", search_prefix);
+    })();
+    match result {
+        Ok(url) => url,
+        Err(e) => {
+            log::warn!("Unable to rewrite URL '{}': {}", url, e);
+            String::from(UNKNOWN_FILE)
+        }
+    }
 }
