@@ -13,6 +13,7 @@ struct JsonCommon {
     #[serde(default)]
     #[serde(alias = "downloaded-media-files")]
     downloaded_media_files: Vec<String>,
+    #[serde(alias = "post_url")]
     url: String,
 }
 

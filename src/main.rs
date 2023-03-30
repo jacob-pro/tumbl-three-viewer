@@ -9,6 +9,7 @@ use actix_cors::Cors;
 use actix_web::http::StatusCode;
 use actix_web::web::Data;
 use actix_web::{web, App, HttpResponse, HttpServer};
+use anyhow::Context;
 use clap::Parser;
 use enum_iterator::Sequence;
 use env_logger::Env;
@@ -95,7 +96,7 @@ async fn blogs(args: Data<Args>) -> HttpResponse {
 enum BlogError {
     #[error("Blog directory not found")]
     NotFound,
-    #[error("Internal error loading blog metadata: {0}")]
+    #[error("Internal error loading blog metadata: {0:#}")]
     Internal(
         #[source]
         #[from]
@@ -117,7 +118,7 @@ async fn blog(args: Data<Args>, blog_name: web::Path<String>) -> HttpResponse {
         }
         let mut posts = Vec::new();
         for file in enum_iterator::all::<MetadataType>() {
-            posts.extend(load_posts(&dir, file)?);
+            posts.extend(load_posts(&dir, file).context(file.file_name())?);
         }
         posts.sort_by_key(|p| p.common.id);
         Ok(posts)
