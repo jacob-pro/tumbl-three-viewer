@@ -29,7 +29,7 @@ impl JsonCommon {
 pub struct JsonVideo {
     #[serde(flatten)]
     common: JsonCommon,
-    caption: String,
+    caption: Option<String>,
 }
 
 impl JsonVideo {
@@ -48,7 +48,7 @@ impl JsonVideo {
                     .downloaded_media_files
                     .first()
                     .map(|filename| url_for_media_file(blog_dir, filename)),
-                caption: Some(self.caption),
+                caption: self.caption,
             }),
         })
     }
@@ -59,7 +59,7 @@ struct JsonImage {
     #[serde(flatten)]
     common: JsonCommon,
     #[serde(alias = "photo-caption")]
-    caption: String,
+    caption: Option<String>,
 }
 
 impl JsonImage {
@@ -79,7 +79,7 @@ impl JsonImage {
                     .iter()
                     .map(|filename| url_for_media_file(blog_dir, filename))
                     .collect(),
-                caption: Some(self.caption),
+                caption: self.caption,
             }),
         })
     }
