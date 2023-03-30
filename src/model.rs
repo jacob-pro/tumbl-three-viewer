@@ -13,6 +13,7 @@ pub struct Post {
 #[derive(Serialize, Debug)]
 pub struct PostCommon {
     pub id: u64,
+    pub post_url: Option<String>,
     pub date: Option<String>,
     pub tags: Vec<String>,
 }

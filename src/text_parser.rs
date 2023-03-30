@@ -39,6 +39,7 @@ fn read_until_tags(next_line: &str) -> bool {
 
 const FIELD_POST_ID: Field = Field::new("Post id", read_one);
 const FIELD_DATE: Field = Field::new("Date", read_one);
+const FIELD_POST_URL: Field = Field::new("Post url", read_one);
 const FIELD_TAGS: Field = Field::new("Tags", read_one);
 const FIELD_REBLOG_NAME: Field = Field::new("Reblog name", read_one);
 const FIELD_BODY: Field = Field::new("", read_until_tags);
@@ -55,6 +56,7 @@ const FIELD_TITLE: Field = Field::new("Title", read_one);
 const IMAGE_FIELDS: &[Field] = &[
     FIELD_POST_ID,
     FIELD_DATE,
+    FIELD_POST_URL,
     FIELD_PHOTO_URL,
     FIELD_PHOTO_SET_URLS,
     FIELD_PHOTO_CAPTION,
@@ -64,6 +66,7 @@ const IMAGE_FIELDS: &[Field] = &[
 const VIDEO_FIELDS: &[Field] = &[
     FIELD_POST_ID,
     FIELD_DATE,
+    FIELD_POST_URL,
     FIELD_VIDEO_CAPTION,
     FIELD_VIDEO_PLAYER,
     FIELD_TAGS,
@@ -72,6 +75,7 @@ const VIDEO_FIELDS: &[Field] = &[
 const TEXT_FIELDS: &[Field] = &[
     FIELD_POST_ID,
     FIELD_DATE,
+    FIELD_POST_URL,
     FIELD_TITLE,
     FIELD_BODY,
     FIELD_TAGS,
@@ -80,6 +84,7 @@ const TEXT_FIELDS: &[Field] = &[
 const ANSWER_FIELDS: &[Field] = &[
     FIELD_POST_ID,
     FIELD_DATE,
+    FIELD_POST_URL,
     FIELD_REBLOG_NAME,
     FIELD_BODY,
     FIELD_TAGS,
@@ -163,6 +168,7 @@ impl PostCommon {
                 .context("missing id")?
                 .parse()?,
             date: map.remove(FIELD_DATE.field_name),
+            post_url: map.remove(FIELD_POST_URL.field_name),
             tags: map
                 .remove(FIELD_TAGS.field_name)
                 .unwrap_or_default()

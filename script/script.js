@@ -130,30 +130,32 @@ class Post {
     id;
     date;
     tags;
+    post_url;
 
-    constructor(id, date, tags) {
-        this.id = id
-        this.date = date
-        this.tags = tags.join(", ")
+    constructor(json) {
+        this.id = json["id"]
+        this.date = json["date"]
+        this.tags = json["tags"].join(", ")
+        this.post_url = json["post_url"];
     }
 
-    static deserialize(post) {
-        const type = post["type"]
+    static deserialize(json) {
+        const type = json["type"]
         if (type === PostType.Image) {
-            return Image.deserialize(post);
+            return new Image(json);
         } else if (type === PostType.Video) {
-            return Video.deserialize(post);
+            return new Video(json);
         } else if (type === PostType.Text) {
-            return Text.deserialize(post);
+            return new Text(json);
         } else if (type === PostType.Answer) {
-            return Answer.deserialize(post);
+            return new Answer(json);
         } else {
             throw new Error("Unknown type " + type);
         }
     }
 
     render_header() {
-        return `<p>${this.date}</p>`
+        return `<p><a href="${this.post_url}">${this.date}</a></p>`
     }
 
     render_footer() {
@@ -172,14 +174,10 @@ class Image extends Post {
     photo_urls;
     caption;
 
-    constructor(id, date, tags, photo_urls, caption) {
-        super(id, date, tags);
-        this.photo_urls = photo_urls
-        this.caption = caption
-    }
-
-    static deserialize(post) {
-        return new Image(post["id"], post["date"], post["tags"], post["photo_urls"], post["caption"])
+    constructor(json) {
+        super(json);
+        this.photo_urls = json["photo_urls"]
+        this.caption = json["caption"]
     }
 
     render() {
@@ -202,14 +200,10 @@ class Video extends Post {
     url;
     caption;
 
-    constructor(id, date, tags, url, caption) {
-        super(id, date, tags)
-        this.url = url
-        this.caption = caption
-    }
-
-    static deserialize(post) {
-        return new Video(post["id"], post["date"], post["tags"], post["url"], post["caption"])
+    constructor(json) {
+        super(json)
+        this.url = json["url"]
+        this.caption = json["caption"]
     }
 
     render() {
@@ -234,15 +228,11 @@ class Text extends Post {
     body;
     media_urls;
 
-    constructor(id, date, tags, title, body, media_urls) {
-        super(id, date, tags);
-        this.title = title
-        this.body = body
-        this.media_urls = media_urls
-    }
-
-    static deserialize(post) {
-        return new Text(post["id"], post["date"], post["tags"], post["title"], post["body"], post["media_urls"])
+    constructor(json) {
+        super(json);
+        this.title = json["title"]
+        this.body = json["body"]
+        this.media_urls = json["media_urls"]
     }
 
     render() {
@@ -271,13 +261,9 @@ class Text extends Post {
 class Answer extends Post {
     body;
 
-    constructor(id, date, tags, body) {
-        super(id, date, tags);
-        this.body = body
-    }
-
-    static deserialize(post) {
-        return new Answer(post["id"], post["date"], post["tags"], post["body"])
+    constructor(json) {
+        super(json);
+        this.body = json["body"]
     }
 
     render() {

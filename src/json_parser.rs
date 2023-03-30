@@ -13,12 +13,14 @@ struct JsonCommon {
     #[serde(default)]
     #[serde(alias = "downloaded-media-files")]
     downloaded_media_files: Vec<String>,
+    url: String,
 }
 
 impl JsonCommon {
     fn to_model(&self) -> anyhow::Result<PostCommon> {
         Ok(PostCommon {
             id: self.id.parse()?,
+            post_url: Some(self.url.clone()),
             date: Some(self.date.clone()),
             tags: self.tags.clone(),
         })
