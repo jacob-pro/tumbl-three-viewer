@@ -1,8 +1,9 @@
 # TumblThree Backup Viewer
 
 [![Build status](https://github.com/jacob-pro/tumbl-three-viewer/actions/workflows/rust.yml/badge.svg)](https://github.com/jacob-pro/tumbl-three-viewer/actions/workflows/rust.yml)
+![maintenance-status](https://img.shields.io/badge/maintenance-experimental-blue.svg)
 
-Browser based viewer for [TumblThree](https://github.com/TumblThreeApp/TumblThree) backups.
+Minimal browser based viewer for [TumblThree](https://github.com/TumblThreeApp/TumblThree) backups.
 
 ## Metadata Support
 
@@ -38,3 +39,7 @@ Launch the application either within the `Blogs` directory or using the argument
 ```bash
 tumbl-three-viewer --path "./Blogs"
 ```
+
+## Screenshots
+
+![screenshot](./screenshot/todayontumblr.png)
