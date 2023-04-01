@@ -26,14 +26,8 @@
     margin-top: 50px;
 }
 
-img {
-    width: auto;
-    max-width: 100%;
-    display: block;
-    margin: 5px auto;
-}
-
-video {
+:is(img, video) {
+    width: 100%;
     max-width: 100%;
     display: block;
     margin: 5px auto;

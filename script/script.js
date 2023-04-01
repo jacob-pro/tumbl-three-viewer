@@ -30,19 +30,15 @@ $( document ).ready(function() {
             BLOG_CHOICE.append(placeholder);
             list.forEach((d) => BLOG_CHOICE.append(new Option(d,d)));
             BLOG_CHOICE.attr('disabled' , false);
-        },
-        function (e) {
-            throw new Error("Get /blogs failed")
         }
     ).catch((e) => {
-        alert(e);
+        alert(e.responseText);
     })
 
     BLOG_CHOICE.change(function() {
         const blog = $(this).val();
         $.get( BASE_URL + "/blogs/" + blog ).then((posts) => {
             ALL_POSTS = posts.map(Post.deserialize);
-            console.log(ALL_POSTS);
             TOTAL.text(`Total: ${ALL_POSTS.length}`);
             apply_filters();
             update_page_choice();
