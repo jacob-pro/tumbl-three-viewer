@@ -8,7 +8,7 @@ use crate::text_parser::split_text_posts;
 use actix_cors::Cors;
 use actix_web::http::StatusCode;
 use actix_web::web::Data;
-use actix_web::{web, App, HttpResponse, HttpServer};
+use actix_web::{get, web, App, HttpResponse, HttpServer};
 use anyhow::Context;
 use clap::Parser;
 use enum_iterator::Sequence;
@@ -51,8 +51,8 @@ struct Viewer;
 #[folder = "index/"]
 struct Index;
 
-/// Route handler for /blogs - returns list of all directories that contain one or more
-/// metadata files
+/// Returns list of all directories that contain one or more TumblThree metadata files
+#[get("/blogs")]
 async fn blogs(args: Data<Args>) -> HttpResponse {
     let blogs = web::block(move || -> Result<_, String> {
         Ok(fs::read_dir(&args.path)
@@ -104,8 +104,8 @@ enum BlogError {
     ),
 }
 
-/// Route handler for /blog/{name}
 /// Return a list of posts
+#[get("/blogs/{name}")]
 async fn blog(args: Data<Args>, blog_name: web::Path<String>) -> HttpResponse {
     let res = web::block(move || -> Result<_, BlogError> {
         let dir = args
@@ -159,6 +159,7 @@ fn load_posts(dir: &Path, metadata_type: MetadataType) -> anyhow::Result<Vec<Pos
     }
 }
 
+#[get("/{path:.*}")]
 async fn viewer(path: web::Path<String>) -> HttpResponse {
     let mime = path.rfind('.').map(|idx| {
         let ext = &path[idx + 1..];
@@ -204,9 +205,9 @@ async fn main() -> io::Result<()> {
         App::new()
             .app_data(Data::new(args2.clone()))
             .wrap(cors)
-            .route("/blogs", web::get().to(blogs))
-            .route("/blogs/{name}", web::get().to(blog))
-            .route("/{path:.*}", web::get().to(viewer))
+            .service(blogs)
+            .service(blog)
+            .service(viewer)
     })
     .bind(("127.0.0.1", args.port))?
     .run();
